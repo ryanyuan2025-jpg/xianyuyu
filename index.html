@@ -77,17 +77,36 @@ td{padding:10px 12px;border-bottom:1px solid #f1f5f9}
       <div style="color:#94a3b8;font-size:14px;margin-top:4px">闲鱼无货源助手</div>
     </div>
     <h2 id="login-title" style="font-size:20px;font-weight:700;margin-bottom:20px;color:#1e293b">欢迎回来</h2>
-    <div style="display:flex;flex-direction:column;gap:14px">
+    <!-- 登录表单 -->
+    <div id="login-form" style="display:flex;flex-direction:column;gap:14px">
       <div id="reg-name-field" class="hidden"><label>用户名</label><input id="reg-name" maxlength="20" placeholder="输入用户名" autocomplete="off"></div>
       <div><label>邮箱</label><input id="login-email" type="email" maxlength="100" placeholder="your@email.com" autocomplete="email"></div>
       <div><label>密码</label><input id="login-pw" type="password" maxlength="64" placeholder="输入密码（至少6位）" autocomplete="current-password"></div>
       <div id="login-error" style="display:none;padding:8px 12px;background:#fef2f2;color:#dc2626;border-radius:8px;font-size:13px"></div>
       <button class="btn btn-primary" id="login-btn" onclick="doLogin()" style="margin-top:4px">登录</button>
     </div>
+    <!-- 注册步骤1：发送暗号 -->
+    <div id="reg-step1" style="display:none;flex-direction:column;gap:14px">
+      <div><label>用户名</label><input id="reg-name2" maxlength="20" placeholder="输入用户名" autocomplete="off"></div>
+      <div><label>邮箱</label><input id="reg-email" type="email" maxlength="100" placeholder="your@email.com" autocomplete="email"></div>
+      <div style="display:flex;gap:10px"><button class="btn btn-primary" id="send-code-btn" onclick="sendVerifyCode()" style="flex:1">发送暗号</button></div>
+      <div id="code-sent-info" style="display:none;padding:10px 12px;background:#ecfdf5;color:#059669;border-radius:8px;font-size:13px">✉️ 暗号已发送到您的邮箱，5分钟内有效</div>
+    </div>
+    <!-- 注册步骤2：输入暗号+密码 -->
+    <div id="reg-step2" style="display:none;flex-direction:column;gap:14px">
+      <div><label>邮箱暗号（6位数字）</label><input id="reg-code" maxlength="6" placeholder="输入邮箱收到的6位暗号" autocomplete="off" inputmode="numeric"></div>
+      <div><label>设置密码</label><input id="reg-pw" type="password" maxlength="64" placeholder="输入密码（至少6位）" autocomplete="new-password"></div>
+      <div><label>确认密码</label><input id="reg-pw2" type="password" maxlength="64" placeholder="再次输入密码" autocomplete="new-password"></div>
+      <div id="reg-error" style="display:none;padding:8px 12px;background:#fef2f2;color:#dc2626;border-radius:8px;font-size:13px"></div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-ghost" onclick="goRegStep1()" style="flex:1">上一步</button>
+        <button class="btn btn-primary" id="reg-btn" onclick="doRegister()" style="flex:2">注册</button>
+      </div>
+    </div>
     <div style="text-align:center;margin-top:18px;font-size:13px;color:#94a3b8">
       <span id="toggle-text">没有账号？</span><span id="toggle-btn" style="color:#0c8ee7;cursor:pointer;font-weight:600;margin-left:4px" onclick="toggleReg()">立即注册</span>
     </div>
-    <div style="margin-top:14px;padding:10px;background:#f8fafc;border-radius:8px;font-size:12px;color:#94a3b8;text-align:center">🔒 数据云端同步 · 密码加密存储</div>
+    
   </div>
 </div>
 
@@ -191,9 +210,113 @@ function toggleReg(){
   document.getElementById('login-title').textContent=isReg?'创建账号':'欢迎回来';
   document.getElementById('toggle-text').textContent=isReg?'已有账号？':'没有账号？';
   document.getElementById('toggle-btn').textContent=isReg?'立即登录':'立即注册';
-  document.getElementById('reg-name-field').classList.toggle('hidden',!isReg);
-  document.getElementById('login-btn').textContent=isReg?'注册':'登录';
+  document.getElementById('login-form').style.display=isReg?'none':'flex';
+  document.getElementById('reg-step1').style.display=isReg?'flex':'none';
+  document.getElementById('reg-step2').style.display='none';
+  document.getElementById('code-sent-info').style.display='none';
   hideLoginError();
+}
+function goRegStep1(){
+  document.getElementById('reg-step1').style.display='flex';
+  document.getElementById('reg-step2').style.display='none';
+}
+function showRegError(msg){const el=document.getElementById('reg-error');el.textContent=msg;el.style.display='block'}
+function hideRegError(){document.getElementById('reg-error').style.display='none'}
+
+// 发送邮箱暗号
+let verifyEmail='';
+async function sendVerifyCode(){
+  hideLoginError();
+  const nm=sanitize(document.getElementById('reg-name2').value.trim(),20);
+  const em=sanitize(document.getElementById('reg-email').value.trim(),100);
+  if(!nm){showLoginError('请输入用户名');return}
+  if(nm.length<2){showLoginError('用户名至少2个字符');return}
+  if(!em){showLoginError('请输入邮箱');return}
+  if(!validEmail(em)){showLoginError('邮箱格式不正确');return}
+  
+  const btn=document.getElementById('send-code-btn');
+  btn.disabled=true;btn.innerHTML='<span class="loading-spinner"></span>发送中...';
+  
+  try{
+    // Check if email already registered
+    const{data:existing}=await sb.from('profiles').select('id').eq('email',em).maybeSingle();
+    if(existing){showLoginError('该邮箱已注册，请直接登录');btn.disabled=false;btn.textContent='发送暗号';return}
+    
+    // Generate and store verification code
+    const code=String(Math.floor(100000+Math.random()*900000));
+    const expiresAt=new Date(Date.now()+5*60*1000).toISOString();
+    
+    const{error:codeErr}=await sb.from('verify_codes').insert({email:em,code:code,expires_at:expiresAt});
+    if(codeErr){showLoginError('发送失败，请稍后重试');btn.disabled=false;btn.textContent='发送暗号';return}
+    
+    verifyEmail=em;
+    document.getElementById('code-sent-info').style.display='block';
+    document.getElementById('reg-step2').style.display='flex';
+    
+    // Auto-fill email in step2 header
+    toast('✉️ 暗号已发送到 '+em,'ok');
+    
+    // Countdown on button
+    let cd=60;
+    btn.disabled=true;
+    const timer=setInterval(()=>{cd--;btn.textContent=cd+'秒后重发';if(cd<=0){clearInterval(timer);btn.disabled=false;btn.textContent='重新发送暗号'}},1000);
+  }catch(e){
+    showLoginError('发送失败：'+(e.message||'网络错误'));
+    btn.disabled=false;btn.textContent='发送暗号';
+  }
+}
+
+// 注册：验证暗号+创建账号
+async function doRegister(){
+  hideRegError();
+  const code=sanitize(document.getElementById('reg-code').value.trim(),6);
+  const pw=document.getElementById('reg-pw').value;
+  const pw2=document.getElementById('reg-pw2').value;
+  const nm=sanitize(document.getElementById('reg-name2').value.trim(),20);
+  const em=verifyEmail;
+  
+  if(!code||code.length!==6){showRegError('请输入6位暗号');return}
+  if(!pw||pw.length<6){showRegError('密码至少6位');return}
+  if(pw!==pw2){showRegError('两次密码不一致');return}
+  
+  const btn=document.getElementById('reg-btn');
+  btn.disabled=true;btn.innerHTML='<span class="loading-spinner"></span>注册中...';
+  
+  try{
+    // Verify the code
+    const{data:codes}=await sb.from('verify_codes')
+      .select('*')
+      .eq('email',em)
+      .eq('code',code)
+      .eq('used',false)
+      .gte('expires_at',new Date().toISOString())
+      .order('created_at',{ascending:false})
+      .limit(1);
+    
+    if(!codes||codes.length===0){showRegError('暗号错误或已过期，请重新获取');btn.disabled=false;btn.textContent='注册';return}
+    
+    // Mark code as used
+    await sb.from('verify_codes').update({used:true}).eq('id',codes[0].id);
+    
+    // Create account
+    const{data,error}=await sb.auth.signUp({email:em,password:pw,options:{data:{name:nm}}});
+    if(error){
+      if(error.message.includes('already registered')){showRegError('该邮箱已注册，请直接登录')}
+      else{showRegError(error.message)}
+      btn.disabled=false;btn.textContent='注册';return;
+    }
+    
+    currentUser=data.user;
+    await new Promise(r=>setTimeout(r,1500));
+    const{data:profile}=await sb.from('profiles').select('*').eq('id',currentUser.id).single();
+    currentProfile=profile;
+    toast('注册成功！','ok');
+    showApp();
+  }catch(e){
+    showRegError(e.message||'注册失败');
+  }finally{
+    btn.disabled=false;btn.textContent='注册';
+  }
 }
 
 function showLoginError(msg){const el=document.getElementById('login-error');el.textContent=msg;el.style.display='block'}
@@ -203,46 +326,30 @@ async function doLogin(){
   hideLoginError();
   const em=sanitize(document.getElementById('login-email').value.trim(),100);
   const pw=document.getElementById('login-pw').value;
-  const nm=sanitize(document.getElementById('reg-name').value.trim(),20);
 
   if(!em||!pw){showLoginError('请填写邮箱和密码');return}
   if(!validEmail(em)){showLoginError('邮箱格式不正确');return}
   if(pw.length<6){showLoginError('密码至少6位');return}
 
   const btn=document.getElementById('login-btn');
-  btn.disabled=true;btn.innerHTML='<span class="loading-spinner"></span>'+(isReg?'注册中...':'登录中...');
+  btn.disabled=true;btn.innerHTML='<span class="loading-spinner"></span>登录中...';
 
   try{
-    if(isReg){
-      if(!nm){showLoginError('请输入用户名');btn.disabled=false;btn.textContent='注册';return}
-      if(nm.length<2){showLoginError('用户名至少2个字符');btn.disabled=false;btn.textContent='注册';return}
-      const{data,error}=await sb.auth.signUp({email:em,password:pw,options:{data:{name:nm}}});
-      if(error)throw error;
-      if(data.user&&!data.session){
-        showLoginError('✉️ 注册成功！请去邮箱点击验证链接，验证后即可登录');
-        toggleReg();btn.disabled=false;btn.textContent='登录';return;
-      }
-      currentUser=data.user;
-      await new Promise(r=>setTimeout(r,1000));
-      const{data:profile}=await sb.from('profiles').select('*').eq('id',currentUser.id).single();
-      currentProfile=profile;
-    }else{
-      const{data,error}=await sb.auth.signInWithPassword({email:em,password:pw});
-      if(error)throw error;
-      currentUser=data.user;
-      const{data:profile}=await sb.from('profiles').select('*').eq('id',currentUser.id).single();
-      if(!profile){showLoginError('用户数据异常');btn.disabled=false;btn.textContent='登录';return}
-      if(profile.is_banned){showLoginError('账号已被封禁');await sb.auth.signOut();btn.disabled=false;btn.textContent='登录';return}
-      currentProfile=profile;
-      await sb.from('profiles').update({last_login:new Date().toISOString()}).eq('id',currentUser.id);
-    }
-    toast(isReg?'注册成功！':'登录成功！','ok');
+    const{data,error}=await sb.auth.signInWithPassword({email:em,password:pw});
+    if(error)throw error;
+    currentUser=data.user;
+    const{data:profile}=await sb.from('profiles').select('*').eq('id',currentUser.id).single();
+    if(!profile){showLoginError('用户数据异常，请联系管理员');btn.disabled=false;btn.textContent='登录';return}
+    if(profile.is_banned){showLoginError('账号已被封禁');await sb.auth.signOut();btn.disabled=false;btn.textContent='登录';return}
+    currentProfile=profile;
+    await sb.from('profiles').update({last_login:new Date().toISOString()}).eq('id',currentUser.id);
+    toast('登录成功！','ok');
     showApp();
   }catch(e){
     const msg=e.message||'操作失败';
-    showLoginError(msg.includes('Invalid login')?'邮箱或密码错误':msg.includes('already registered')?'该邮箱已注册，请直接登录':msg);
+    showLoginError(msg.includes('Invalid login')?'邮箱或密码错误':msg.includes('Email not confirmed')?'邮箱未验证，请查看邮箱中的验证链接':msg);
   }finally{
-    btn.disabled=false;btn.textContent=isReg?'注册':'登录';
+    btn.disabled=false;btn.textContent='登录';
   }
 }
 
@@ -263,7 +370,7 @@ function showApp(){
   document.getElementById('app-layout').classList.remove('hidden');
   document.getElementById('user-avatar').textContent=(currentProfile?.name||'U').charAt(0).toUpperCase();
   const plan=currentProfile?.plan||'free';
-  document.getElementById('plan-badge').textContent=plan==='free'?'免费版':plan==='pro'?'Pro版':'工作室版';
+  document.getElementById('plan-badge').textContent=plan==='free'?'免费版':'Pro版';
   document.getElementById('plan-badge').className='badge '+(plan==='free'?'bg-blue':plan==='pro'?'bg-yellow':'bg-green');
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebar-mask').style.display='none';
@@ -335,7 +442,7 @@ async function loadDash(){
     {l:'绑定商品',v:ps.length,c:'#0c8ee7',i:'📦'},
     {l:'总订单',v:os.length,c:'#8b5cf6',i:'🛒'},
     {l:'累计利润',v:'¥'+tp.toFixed(2),c:'#059669',i:'💰'},
-    {l:'待处理',v:po,c:'#f59e0b',i:'⏳'},
+    {l:'待处理',v:po,c:'#f59e0b',i:'⏳'}
   ];
   const ro=os.slice(0,5);
   let rows='';
@@ -606,15 +713,15 @@ async function loadSet(){
   const plan=currentProfile?.plan||'free';
   const plans=[
     {id:'free',n:'免费版',p:'0',f:['商品绑定 (限5个)','每日免费代拍1单','手动订单管理','基础利润计算'],lock:false},
-    {id:'pro',n:'Pro版',p:'39',f:['无限商品绑定','无限代拍','订单自动检测','AI标题优化','物流同步'],lock:true},
-    {id:'studio',n:'工作室版',p:'99',f:['Pro版全部功能','多账号管理','数据导出','优先支持','API接口'],lock:true}
+    {id:'pro',n:'Pro版',p:'39',f:['无限商品绑定','无限代拍','订单自动检测','AI标题优化','物流同步','一键代拍','数据导出'],lock:true},
+    
   ];
   let h='<h2 style="font-size:19px;font-weight:700;margin-bottom:18px">💳 套餐管理</h2><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:28px">';
   plans.forEach(p=>{
     const sel=plan===p.id;
     h+='<div class="plan-card'+(sel?' selected':'')+(p.lock&&!sel?' locked':'')+'" '+(p.lock&&!sel?'onclick="toast(\'升级套餐请联系管理员 vx：zhangjunyuan-Ryan\',\'err\')"':'onclick="switchPlan(\''+p.id+'\')\"')+'><div class="check">✓</div><div style="font-size:17px;font-weight:700;margin-bottom:4px">'+esc(p.n)+'</div><div style="margin-bottom:12px"><span style="font-size:26px;font-weight:800;color:#0c8ee7">¥'+esc(p.p)+'</span><span style="font-size:13px;color:#94a3b8">/月</span></div>'+p.f.map(f=>'<div style="display:flex;align-items:center;gap:5px;font-size:13px;color:#475569;padding:3px 0"><span style="color:#22c55e">✓</span>'+esc(f)+'</div>').join('')+(p.lock&&!sel?'<div style="margin-top:8px;font-size:11px;color:#94a3b8">🔒 升级请联系管理员 vx：zhangjunyuan-Ryan</div>':'')+'</div>';
   });
-  h+='</div><div class="card" style="padding:18px"><h3 style="font-size:16px;font-weight:700;margin-bottom:14px">⚙️ 系统设置</h3><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px">用户信息</div><div style="font-size:12px;color:#94a3b8">'+esc(currentProfile?.name||'')+' · '+esc(currentProfile?.email||'')+'</div></div><span class="badge bg-blue">当前：'+(plan==='free'?'免费版':plan==='pro'?'Pro版':'工作室版')+'</span></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px">数据统计</div><div style="font-size:12px;color:#94a3b8">'+pc+' 商品 · '+oc+' 订单</div></div></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px">📥 导出数据</div><div style="font-size:12px;color:#94a3b8">导出所有商品和订单为JSON文件</div></div><button class="btn btn-primary btn-sm" onclick="exportData()">导出</button></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px;color:#ef4444">清除数据</div><div style="font-size:12px;color:#94a3b8">删除所有商品和订单数据</div></div><button class="btn btn-red btn-sm" onclick="clearAll()">清除</button></div></div><div style="margin-top:18px;padding:14px;background:#fffbeb;border-radius:8px;font-size:13px;color:#92400e;display:flex;align-items:flex-start;gap:8px"><span>🛡️</span><div><b>安全提示：</b>数据云端加密存储，手机号自动脱敏显示。本系统仅作为电商辅助工具，不参与实际交易。请遵守各平台规则，合理使用。</div></div>';
+  h+='</div><div class="card" style="padding:18px"><h3 style="font-size:16px;font-weight:700;margin-bottom:14px">⚙️ 系统设置</h3><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px">用户信息</div><div style="font-size:12px;color:#94a3b8">'+esc(currentProfile?.name||'')+' · '+esc(currentProfile?.email||'')+'</div></div><span class="badge bg-blue">当前：'+(plan==='free'?'免费版':'Pro版')+'</span></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px">数据统计</div><div style="font-size:12px;color:#94a3b8">'+pc+' 商品 · '+oc+' 订单</div></div></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px">📥 导出数据</div><div style="font-size:12px;color:#94a3b8">导出所有商品和订单为JSON文件</div></div><button class="btn btn-primary btn-sm" onclick="exportData()">导出</button></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px;color:#ef4444">清除数据</div><div style="font-size:12px;color:#94a3b8">删除所有商品和订单数据</div></div><button class="btn btn-red btn-sm" onclick="clearAll()">清除</button></div></div><div style="margin-top:18px;padding:14px;background:#fffbeb;border-radius:8px;font-size:13px;color:#92400e;display:flex;align-items:flex-start;gap:8px"><span>🛡️</span><div><b>安全提示：</b>数据云端加密存储，手机号自动脱敏显示。本系统仅作为电商辅助工具，不参与实际交易。请遵守各平台规则，合理使用。</div></div>';
   document.getElementById('content').innerHTML=h;
 }
 

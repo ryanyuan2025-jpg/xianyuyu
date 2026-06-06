@@ -264,7 +264,7 @@ tr:hover td{background:rgba(59,130,246,.04)}
   <div class="modal">
     <h3>创建订阅</h3>
     <div class="form-group"><label>用户邮箱</label><input type="email" id="subEmail" maxlength="100" placeholder="user@example.com"></div>
-    <div class="form-group"><label>套餐</label><select id="subPlan"><option value="free">免费版</option><option value="pro">专业版</option><option value="studio">工作室版</option></select></div>
+    <div class="form-group"><label>套餐</label><select id="subPlan"><option value="free">免费版</option><option value="pro">专业版</option></select></div>
     <div class="form-group"><label>金额(元)</label><input type="number" id="subAmount" placeholder="0" min="0" step="0.01"></div>
     <div class="btn-row">
       <button class="btn btn-ghost btn-sm" onclick="closeSubModal()">取消</button>
@@ -371,7 +371,7 @@ function toggleSidebar(){document.getElementById('sidebar').classList.toggle('op
 function fmtDate(d){if(!d)return'-';const dt=new Date(d);return dt.toLocaleDateString('zh-CN')+' '+dt.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}
 function fmtMoney(n){return'¥'+(Number(n)||0).toFixed(2)}
 function statusBadge(s){const m={active:'success',completed:'success',shipped:'info',pending:'warn',cancelled:'danger',banned:'danger',paused:'warn',expired:'danger'};const t={active:'活跃',completed:'已完成',shipped:'已发货',pending:'待处理',cancelled:'已取消',banned:'已封禁',paused:'暂停',expired:'已过期'};return'<span class="badge badge-'+(m[s]||'info')+'">'+(t[s]||esc(s))+'</span>'}
-function planBadge(p){const m={free:'info',pro:'warn',studio:'success',basic:'success',enterprise:'danger'};const t={free:'免费版',basic:'基础版',pro:'专业版',enterprise:'企业版',studio:'工作室版'};return'<span class="badge badge-'+(m[p]||'info')+'">'+(t[p]||esc(p))+'</span>'}
+function planBadge(p){const m={free:'info',pro:'warn',basic:'success',enterprise:'danger'};const t={free:'免费版',basic:'基础版',pro:'Pro版',enterprise:'企业版'};return'<span class="badge badge-'+(m[p]||'info')+'">'+(t[p]||esc(p))+'</span>'}
 function riskBadge(r){const m={low:'success',medium:'warn',high:'danger'};const t={low:'低',medium:'中',high:'高'};return'<span class="badge badge-'+(m[r]||'info')+'">'+(t[r]||esc(r))+'</span>'}
 
 function pager(el,count,page,loader){
@@ -448,7 +448,7 @@ async function loadUsers(page){
   const{data,count,error}=await q;if(error){console.error(error);return}
   document.getElementById('usersBody').innerHTML=(data||[]).map(u=>{
     const uid=esc(u.id); // 安全: UUID 格式
-    return '<tr><td>'+esc(u.email)+'</td><td>'+esc(u.name)+'</td><td>'+planBadge(u.plan)+'</td><td>'+(u.is_banned?statusBadge('banned'):(u.is_admin?'<span class="badge badge-info">管理员</span>':statusBadge('active')))+'</td><td>'+fmtDate(u.created_at)+'</td><td class="actions">'+(u.is_admin?'':'<button class="btn btn-warn btn-sm" onclick="confirmSetAdmin(\''+uid+'\')">设管理</button>')+' '+(u.is_banned?'<button class="btn btn-success btn-sm" onclick="confirmSetBan(\''+uid+'\',false)">解封</button>':'<button class="btn btn-danger btn-sm" onclick="confirmSetBan(\''+uid+'\',true)">封禁</button>')+'</td></tr>';
+    return '<tr><td>'+esc(u.email)+'</td><td>'+esc(u.name)+'</td><td>'+planBadge(u.plan)+' <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px" onclick="changePlan(\''+uid+'\',\''+esc(u.plan||'free')+'\')">改套餐</button></td><td>'+(u.is_banned?statusBadge('banned'):(u.is_admin?'<span class="badge badge-info">管理员</span>':statusBadge('active')))+'</td><td>'+fmtDate(u.created_at)+'</td><td class="actions">'+(u.is_admin?'':'<button class="btn btn-warn btn-sm" onclick="confirmSetAdmin(\''+uid+'\')">设管理</button>')+' '+(u.is_banned?'<button class="btn btn-success btn-sm" onclick="confirmSetBan(\''+uid+'\',false)">解封</button>':'<button class="btn btn-danger btn-sm" onclick="confirmSetBan(\''+uid+'\',true)">封禁</button>')+'</td></tr>';
   }).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--muted)">暂无数据</td></tr>';
   pager('usersPager',count,page,'loadUsers');
 }
@@ -459,6 +459,43 @@ function confirmSetBan(uid,banned){
 }
 function confirmSetAdmin(uid){
   showConfirm('设置管理员','确定要将该用户设为管理员吗？此操作需谨慎。',async()=>{await sb.from('profiles').update({is_admin:true}).eq('id',uid);loadUsers(usersPage)});
+}
+
+// 修改用户套餐
+function changePlan(uid,currentPlan){
+  const plans=[{id:'free',name:'免费版'},{id:'pro',name:'Pro版'}];
+  let html='<div style="margin-bottom:14px"><label style="display:block;margin-bottom:6px;font-size:13px;color:var(--muted)">选择套餐</label><select id="planSelect" style="width:100%;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px">';
+  plans.forEach(p=>{html+='<option value="'+p.id+'"'+(p.id===currentPlan?' selected':'')+'>'+p.name+'</option>'});
+  html+='</select></div>';
+  
+  const modal=document.createElement('div');
+  modal.className='modal-overlay show';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML='<div style="background:var(--card);border-radius:var(--radius);padding:24px;width:90%;max-width:400px;border:1px solid var(--border)"><h3 style="margin-bottom:16px;font-size:17px">修改用户套餐</h3>'+html+'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px"><button class="btn btn-ghost btn-sm" id="planCancel">取消</button><button class="btn btn-primary btn-sm" id="planConfirm">确认修改</button></div></div>';
+  document.body.appendChild(modal);
+  
+  modal.querySelector('#planCancel').onclick=()=>modal.remove();
+  modal.addEventListener('click',(e)=>{if(e.target===modal)modal.remove()});
+  
+  modal.querySelector('#planConfirm').onclick=async()=>{
+    const newPlan=document.getElementById('planSelect').value;
+    if(newPlan===currentPlan){modal.remove();return}
+    modal.remove();
+    showConfirm('修改套餐','确定将用户套餐从 '+(currentPlan==='free'?'免费版':'Pro版')+' 改为 '+(newPlan==='free'?'免费版':'Pro版')+' 吗？',async()=>{
+      const{data,error}=await sb.rpc('admin_update_plan',{target_user_id:uid,new_plan:newPlan});
+      if(error){alert('修改失败: '+error.message);return}
+      if(data&&!data.success){alert(data.error||'修改失败');return}
+      toast('套餐已修改','ok');
+      loadUsers(usersPage);
+    });
+  };
+}
+
+function toast(msg,type){
+  const t=document.createElement('div');
+  t.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:10px 24px;border-radius:8px;color:#fff;font-size:14px;font-weight:600;z-index:9999;animation:fadeIn .2s;background:'+(type==='ok'?'#22c55e':type==='err'?'#ef4444':'#3b82f6');
+  t.textContent=msg;document.body.appendChild(t);
+  setTimeout(()=>t.remove(),2500);
 }
 
 // ===== 订单管理 =====

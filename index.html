@@ -249,11 +249,17 @@ async function sendVerifyCode(){
     const{error:codeErr}=await sb.from('verify_codes').insert({email:em,code:code,expires_at:expiresAt});
     if(codeErr){showLoginError('发送失败，请稍后重试');btn.disabled=false;btn.textContent='发送暗号';return}
     
+    // 调用Netlify Function发送暗号邮件
+    try{
+      const mailRes=await fetch('/.netlify/functions/send-verify-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,code:code})});
+      const mailData=await mailRes.json();
+      if(!mailData.success){showLoginError('暗号邮件发送失败：'+(mailData.detail||mailData.error||'请稍后重试'));btn.disabled=false;btn.textContent='发送暗号';return}
+    }catch(mailErr){showLoginError('邮件服务异常，请稍后重试');btn.disabled=false;btn.textContent='发送暗号';return}
+    
     verifyEmail=em;
     document.getElementById('code-sent-info').style.display='block';
     document.getElementById('reg-step2').style.display='flex';
     
-    // Auto-fill email in step2 header
     toast('✉️ 暗号已发送到 '+em,'ok');
     
     // Countdown on button

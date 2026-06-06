@@ -643,6 +643,8 @@ async function init(){
     if(profile&&!profile.is_banned){
       currentProfile=profile;
       showApp();
+      // 同步 token 给 Chrome 插件（同源场景）
+      syncTokenToExtension();
       return;
     }
     if(profile&&profile.is_banned){
@@ -650,6 +652,31 @@ async function init(){
     }
   }
 }
+
+// 同步 Supabase token 到 Chrome 插件
+async function syncTokenToExtension(){
+  try{
+    const{data}=await sb.auth.getSession();
+    if(data.session&&data.session.access_token){
+      // 通过 postMessage 给同源的 content script
+      window.postMessage({
+        type:'FISHFLOW_TOKEN',
+        token:data.session.access_token
+      },'*');
+    }
+  }catch(e){}
+}
+
+// 监听 Supabase auth 状态变化，自动同步 token
+sb.auth.onAuthStateChange((event,session)=>{
+  if(session&&session.access_token){
+    window.postMessage({
+      type:'FISHFLOW_TOKEN',
+      token:session.access_token
+    },'*');
+  }
+});
+
 init();
 </script>
 </body>

@@ -1,21 +1,40 @@
 exports.handler = async (event) => {
+  // 安全头
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin'
+  };
+
   // Only allow POST
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
+    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
+  }
+
+  // 请求体大小限制 (1KB)
+  if (event.body && event.body.length > 1024) {
+    return { statusCode: 413, headers, body: JSON.stringify({ error: '请求体过大' }) };
   }
 
   const AI_API_KEY = process.env.ZHIPU_API_KEY;
   if (!AI_API_KEY) {
-    return { statusCode: 500, body: JSON.stringify({ error: '未配置API Key环境变量' }) };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: '服务配置错误' }) };
   }
   const AI_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
   try {
     const body = JSON.parse(event.body);
-    const { title } = body;
+    let { title } = body;
 
+    if (!title || typeof title !== 'string') {
+      return { statusCode: 400, headers, body: JSON.stringify({ error: '缺少标题参数' }) };
+    }
+
+    // 清洗输入：去首尾空白，限制长度
+    title = title.trim().slice(0, 100);
     if (!title) {
-      return { statusCode: 400, body: JSON.stringify({ error: '缺少标题参数' }) };
+      return { statusCode: 400, headers, body: JSON.stringify({ error: '标题不能为空' }) };
     }
 
     const res = await fetch(AI_API_URL, {
@@ -41,15 +60,18 @@ exports.handler = async (event) => {
     const data = await res.json();
 
     if (!res.ok) {
-      return { statusCode: res.status, body: JSON.stringify({ error: 'AI API错误', detail: data }) };
+      // 不向客户端暴露API错误细节
+      console.error('AI API error:', JSON.stringify(data));
+      return { statusCode: 502, headers, body: JSON.stringify({ error: 'AI服务暂时不可用，请稍后重试' }) };
     }
 
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(data)
     };
   } catch (e) {
-    return { statusCode: 500, body: JSON.stringify({ error: '服务器错误: ' + e.message }) };
+    console.error('Function error:', e.message);
+    return { statusCode: 500, headers, body: JSON.stringify({ error: '服务器内部错误' }) };
   }
 };

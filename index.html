@@ -219,7 +219,7 @@ async function doLogin(){
       const{data,error}=await sb.auth.signUp({email:em,password:pw,options:{data:{name:nm}}});
       if(error)throw error;
       if(data.user&&!data.session){
-        showLoginError('注册成功！请查收邮箱验证后登录');
+        showLoginError('✉️ 注册成功！请去邮箱点击验证链接，验证后即可登录');
         toggleReg();btn.disabled=false;btn.textContent='登录';return;
       }
       currentUser=data.user;
@@ -449,15 +449,29 @@ async function loadOrd(){
   [{id:'all',l:'全部'},{id:'pending',l:'待处理'},{id:'processing',l:'处理中'},{id:'done',l:'已完成'}].forEach(x=>{
     h+='<button class="tab-btn'+(filter===x.id?' active':'')+'" onclick="window._ordFilter=\''+x.id+'\';loadOrd()">'+x.l+'</button>';
   });
-  h+='</div><button class="btn btn-primary" onclick="openOrdModal()">+ 手动录入订单</button></div>';
+  h+='</div>';
+  // 免费版显示今日代拍额度
+  const plan=currentProfile?.plan||'free';
+  if(plan==='free'){
+    const today=new Date().toISOString().slice(0,10);
+    const todayOrders=orders.filter(o=>o.created_at&&o.created_at.slice(0,10)===today&&o.status!=='completed');
+    const remaining=Math.max(0,1-todayOrders.length);
+    h+='<div style="display:flex;align-items:center;gap:8px"><span class="badge '+(remaining>0?'bg-blue':'bg-red')+'">今日代拍剩余: '+remaining+'/1</span></div>';
+  }
+  h+='<button class="btn btn-primary" onclick="openOrdModal()">+ 手动录入订单</button></div>';
 
   if(orders.length===0){
     h+='<div class="card" style="text-align:center;padding:50px"><div style="font-size:44px;margin-bottom:10px">🛒</div><div style="font-size:16px;font-weight:600;color:#475569;margin-bottom:6px">暂无订单</div><div style="font-size:13px;color:#94a3b8">当闲鱼商品售出后，在此录入订单信息</div></div>';
   }else{
+    // 计算免费版今日已用代拍次数
+    const plan2=currentProfile?.plan||'free';
+    const today2=new Date().toISOString().slice(0,10);
+    const todayUsed=plan2==='free'?orders.filter(o=>o.created_at&&o.created_at.slice(0,10)===today2).length:0;
     orders.forEach(o=>{
       const sl=o.status==='completed'?'已完成':o.status==='pending'?'待处理':o.status==='shipped'?'已发货':'处理中';
       const sc=o.status==='completed'?'bg-green':o.status==='pending'?'bg-yellow':o.status==='shipped'?'bg-blue':'bg-yellow';
-      h+='<div class="card" style="padding:16px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px"><div style="flex:1;min-width:180px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap"><span class="badge bg-blue">#'+o.id+'</span><span class="badge '+sc+'">'+sl+'</span></div><div style="font-weight:600;font-size:14px;margin-bottom:3px">'+esc(o.product_title)+'</div><div style="font-size:12px;color:#94a3b8">👤 '+esc(o.buyer_name)+' · 📞 '+esc(maskPhone(o.buyer_phone))+'</div><div style="font-size:12px;color:#94a3b8">📍 '+esc(o.buyer_address)+'</div>'+(o.logistics_no?'<div style="margin-top:6px;font-size:12px;color:#059669">🚚 '+esc(o.logistics_company)+'：'+esc(o.logistics_no)+'</div>':'')+'</div><div style="display:flex;align-items:center;gap:14px"><div style="text-align:center"><div style="font-size:11px;color:#94a3b8">售价</div><div style="font-weight:600;font-size:15px">¥'+Number(o.sale_price||0).toFixed(2)+'</div></div><div style="text-align:center;background:#ecfdf5;padding:8px 12px;border-radius:8px"><div style="font-size:11px;color:#059669">利润</div><div style="font-weight:700;font-size:15px;color:#059669">+¥'+Number(o.profit||0).toFixed(2)+'</div></div></div><div style="display:flex;flex-direction:column;gap:5px">'+(o.status==='pending'?'<button class="btn btn-primary btn-sm" onclick="goSource('+o.id+')">⚡ 一键代拍</button><button class="btn btn-ghost btn-sm" onclick="chOrdStatus('+o.id+',\'shipped\')">标记已发货</button>':'')+(o.status==='shipped'?'<button class="btn btn-primary btn-sm" onclick="addLogistics('+o.id+')">🚚 填写物流</button><button class="btn btn-ghost btn-sm" onclick="chOrdStatus('+o.id+',\'completed\')">标记完成</button>':'')+(o.status==='completed'&&!o.logistics_no?'<button class="btn btn-ghost btn-sm" onclick="addLogistics('+o.id+')">补填物流</button>':'')+'</div></div></div>';
+      const canDP=plan2!=='free'||todayUsed<1;
+      h+='<div class="card" style="padding:16px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px"><div style="flex:1;min-width:180px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap"><span class="badge bg-blue">#'+o.id+'</span><span class="badge '+sc+'">'+sl+'</span></div><div style="font-weight:600;font-size:14px;margin-bottom:3px">'+esc(o.product_title)+'</div><div style="font-size:12px;color:#94a3b8">👤 '+esc(o.buyer_name)+' · 📞 '+esc(maskPhone(o.buyer_phone))+'</div><div style="font-size:12px;color:#94a3b8">📍 '+esc(o.buyer_address)+'</div>'+(o.logistics_no?'<div style="margin-top:6px;font-size:12px;color:#059669">🚚 '+esc(o.logistics_company)+'：'+esc(o.logistics_no)+'</div>':'')+'</div><div style="display:flex;align-items:center;gap:14px"><div style="text-align:center"><div style="font-size:11px;color:#94a3b8">售价</div><div style="font-weight:600;font-size:15px">¥'+Number(o.sale_price||0).toFixed(2)+'</div></div><div style="text-align:center;background:#ecfdf5;padding:8px 12px;border-radius:8px"><div style="font-size:11px;color:#059669">利润</div><div style="font-weight:700;font-size:15px;color:#059669">+¥'+Number(o.profit||0).toFixed(2)+'</div></div></div><div style="display:flex;flex-direction:column;gap:5px">'+(o.status==='pending'?(canDP?'<button class="btn btn-primary btn-sm" onclick="goSource('+o.id+')">⚡ 一键代拍</button>':'<button class="btn btn-ghost btn-sm" style="opacity:.5;cursor:default" disabled>⚡ 额度已用完</button>')+'<button class="btn btn-ghost btn-sm" onclick="chOrdStatus('+o.id+',\'shipped\')">标记已发货</button>':'')+(o.status==='shipped'?'<button class="btn btn-primary btn-sm" onclick="addLogistics('+o.id+')">🚚 填写物流</button><button class="btn btn-ghost btn-sm" onclick="chOrdStatus('+o.id+',\'completed\')">标记完成</button>':'')+(o.status==='completed'&&!o.logistics_no?'<button class="btn btn-ghost btn-sm" onclick="addLogistics('+o.id+')">补填物流</button>':'')+'</div></div></div>';
     });
   }
   document.getElementById('content').innerHTML=h;
@@ -480,6 +494,13 @@ async function saveOrd(){
   if(!pi||!bn){toast('请填写必要信息','err');return}
   const phone=sanitize(get('bp'),11);
   if(phone&&!validPhone(phone)){toast('手机号格式不正确','err');return}
+  // 免费版每日代拍上限检查
+  const plan=currentProfile?.plan||'free';
+  if(plan==='free'){
+    const today=new Date().toISOString().slice(0,10);
+    const{count}=await safeQuery(()=>sb.from('orders').select('*',{count:'exact',head:true}).eq('user_id',currentUser.id).gte('created_at',today+'T00:00:00').lt('created_at',today+'T23:59:59'));
+    if(count>=1){toast('免费版每日仅可代拍1单，升级Pro版享无限代拍','err');return}
+  }
   const{data:p}=await safeQuery(()=>sb.from('products').select('*').eq('id',parseInt(pi)).eq('user_id',currentUser.id).single());
   if(!p){toast('请选择关联商品','err');return}
   const pf=p.profit||0;
@@ -584,8 +605,8 @@ async function loadSet(){
   const pc=prodRes.count||0,oc=ordRes.count||0;
   const plan=currentProfile?.plan||'free';
   const plans=[
-    {id:'free',n:'免费版',p:'0',f:['商品绑定 (限5个)','手动订单管理','基础利润计算'],lock:false},
-    {id:'pro',n:'Pro版',p:'39',f:['无限商品绑定','订单自动检测','AI标题优化','物流同步','一键代拍'],lock:true},
+    {id:'free',n:'免费版',p:'0',f:['商品绑定 (限5个)','每日免费代拍1单','手动订单管理','基础利润计算'],lock:false},
+    {id:'pro',n:'Pro版',p:'39',f:['无限商品绑定','无限代拍','订单自动检测','AI标题优化','物流同步'],lock:true},
     {id:'studio',n:'工作室版',p:'99',f:['Pro版全部功能','多账号管理','数据导出','优先支持','API接口'],lock:true}
   ];
   let h='<h2 style="font-size:19px;font-weight:700;margin-bottom:18px">💳 套餐管理</h2><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:28px">';

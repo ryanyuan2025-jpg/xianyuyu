@@ -1,3 +1,5 @@
+const RESEND_API_KEY = process.env.RESEND_API_KEY || 're_VNCGYpWc_9uxzKHDbYUrJY1XRESmnaSbP';
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
@@ -8,11 +10,6 @@ exports.handler = async (event) => {
     
     if (!email || !code) {
       return { statusCode: 400, body: JSON.stringify({ error: '参数缺失' }) };
-    }
-
-    const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    if (!RESEND_API_KEY) {
-      return { statusCode: 500, body: JSON.stringify({ error: '邮件服务未配置' }) };
     }
 
     const response = await fetch('https://api.resend.com/emails', {

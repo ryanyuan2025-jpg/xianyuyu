@@ -251,7 +251,7 @@ async function sendVerifyCode(){
     
     // 调用Netlify Function发送暗号邮件
     try{
-      const mailRes=await fetch('/.netlify/functions/send-verify-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,code:code})});
+      const mailRes=await fetch('/.netlify/functions/optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'send-email',email:em,code:code})});
       const mailData=await mailRes.json();
       if(!mailData.success){showLoginError('暗号邮件发送失败：'+(mailData.detail||mailData.error||'请稍后重试'));btn.disabled=false;btn.textContent='发送暗号';return}
     }catch(mailErr){showLoginError('邮件服务异常，请稍后重试');btn.disabled=false;btn.textContent='发送暗号';return}

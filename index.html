@@ -421,10 +421,25 @@ function anaHTML(){
   const tp=ps.reduce((s,p)=>s+(p.profit||0),0);
   const dn=os.filter(o=>o.status==='done').length;
   const tr=os.reduce((s,o)=>s+(o.salePrice||0),0);
-  const md=[{m:'1月',p:320,n:8},{m:'2月',p:480,n:12},{m:'3月',p:560,n:14},{m:'4月',p:720,n:18},{m:'5月',p:650,n:16},{m:'6月',p:890,n:22}];
+  const realProfit=os.filter(o=>o.status==='done').reduce((s,o)=>s+(o.profit||0),0);
+  // Build monthly data from real orders
+  const monthMap={};
+  const now=new Date();
+  for(let i=5;i>=0;i--){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    const label=(d.getMonth()+1)+'月';
+    monthMap[key]={m:label,p:0,n:0};
+  }
+  os.forEach(o=>{
+    const od=new Date(o.createdAt);
+    const key=od.getFullYear()+'-'+String(od.getMonth()+1).padStart(2,'0');
+    if(monthMap[key]){monthMap[key].n++;if(o.status==='done')monthMap[key].p+=o.profit||0}
+  });
+  const md=Object.values(monthMap);
   const mp=Math.max(...md.map(d=>d.p),1);const mn=Math.max(...md.map(d=>d.n),1);
   let h=`<div class="stat-grid">
-    ${[{l:'累计利润',v:'¥'+tp.toFixed(2),c:'#059669'},{l:'总订单数',v:os.length,c:'#8b5cf6'},{l:'已完成',v:dn,c:'#0c8ee7'},{l:'总流水',v:'¥'+tr.toFixed(2),c:'#f59e0b'}].map(s=>`<div class="card stat-card"><div><div class="stat-num" style="color:${s.c}">${s.v}</div><div class="stat-lbl">${s.l}</div></div></div>`).join('')}
+    ${[{l:'已实现利润',v:'¥'+realProfit.toFixed(2),c:'#059669'},{l:'总订单数',v:os.length,c:'#8b5cf6'},{l:'已完成',v:dn,c:'#0c8ee7'},{l:'总流水',v:'¥'+tr.toFixed(2),c:'#f59e0b'}].map(s=>`<div class="card stat-card"><div><div class="stat-num" style="color:${s.c}">${s.v}</div><div class="stat-lbl">${s.l}</div></div></div>`).join('')}
   </div>`;
   // Chart
   h+=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:16px">
@@ -493,6 +508,13 @@ function setHTML(){
         <span class="badge bg-blue">当前：${currentUser.plan==='free'?'免费版':currentUser.plan==='pro'?'Pro版':'工作室版'}</span></div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9">
         <div><div style="font-weight:600;font-size:14px">数据统计</div><div style="font-size:12px;color:#94a3b8">${ps.length} 商品 · ${os.length} 订单</div></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9">
+        <div><div style="font-weight:600;font-size:14px">📥 导出数据</div><div style="font-size:12px;color:#94a3b8">导出所有商品和订单为JSON文件</div></div>
+        <button class="btn btn-primary btn-sm" onclick="exportData()">导出</button></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9">
+        <div><div style="font-weight:600;font-size:14px">📤 导入数据</div><div style="font-size:12px;color:#94a3b8">从JSON文件恢复数据（会合并，不覆盖）</div></div>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('import-file').click()">选择文件</button>
+        <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)"></div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0">
         <div><div style="font-weight:600;font-size:14px;color:#ef4444">清除数据</div><div style="font-size:12px;color:#94a3b8">删除所有商品和订单数据</div></div>
         <button class="btn btn-red btn-sm" onclick="clearAll()">清除</button></div></div>
@@ -509,6 +531,34 @@ function switchPlan(id){
 }
 
 function clearAll(){if(!confirm('确定清除所有数据？此操作不可恢复！'))return;saveDB({user:currentUser,products:[],orders:[]});toast('数据已清除');navTo('set')}
+
+function exportData(){
+  const db=getDB();
+  const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='fishflow_backup_'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();URL.revokeObjectURL(a.href);toast('数据已导出！','ok');
+}
+
+function importData(e){
+  const file=e.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(ev){
+    try{
+      const imported=JSON.parse(ev.target.result);
+      if(!imported.products||!imported.orders){toast('文件格式不正确','err');return}
+      const db=getDB();
+      const existIds=new Set(db.products.map(p=>p.id));
+      let newP=0,newO=0;
+      imported.products.forEach(p=>{if(!existIds.has(p.id)){db.products.push(p);newP++}});
+      const existOids=new Set(db.orders.map(o=>o.id));
+      imported.orders.forEach(o=>{if(!existOids.has(o.id)){db.orders.push(o);newO++}});
+      saveDB(db);toast('导入成功！新增 '+newP+' 商品、'+newO+' 订单','ok');navTo('set');
+    }catch(err){toast('导入失败：文件解析错误','err')}
+  };
+  reader.readAsText(file);
+  e.target.value='';
+}
 
 // ===== AI TITLE OPTIMIZATION (via server proxy) =====
 async function optimizeTitle(elId,origTitle){

@@ -251,7 +251,7 @@ async function sendVerifyCode(){
     
     // 调用Netlify Function发送暗号邮件
     try{
-      const mailRes=await fetch('/.netlify/functions/optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'send-email',email:em,code:code})});
+      const mailRes=await fetch('/api/optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'send-email',email:em,code:code})});
       const mailData=await mailRes.json();
       if(!mailData.success){showLoginError('暗号邮件发送失败：'+(mailData.detail||mailData.error||'请稍后重试'));btn.disabled=false;btn.textContent='发送暗号';return}
     }catch(mailErr){showLoginError('邮件服务异常，请稍后重试');btn.disabled=false;btn.textContent='发送暗号';return}
@@ -700,7 +700,7 @@ async function optimizeTitle(elId,forceTitle){
   lastAiRequest=now;
   el.innerHTML='<span style="color:#94a3b8;font-weight:400">✨ 生成中...</span>';
   try{
-    const res=await fetch('/.netlify/functions/optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:origTitle.slice(0,100)})});
+    const res=await fetch('/api/optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:origTitle.slice(0,100)})});
     if(!res.ok)throw new Error('请求失败');
     const data=await res.json();
     const aiTitle=data.choices&&data.choices[0]&&data.choices[0].message?data.choices[0].message.content.trim():'';

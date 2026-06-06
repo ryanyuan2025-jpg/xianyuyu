@@ -53,7 +53,7 @@ exports.handler = async (event) => {
           { role: 'user', content: '优化这个闲鱼标题：' + title }
         ],
         temperature: 0.8,
-        max_tokens: 60
+        max_tokens: 256
       })
     });
 
@@ -74,4 +74,4 @@ exports.handler = async (event) => {
     console.error('Function error:', e.message);
     return { statusCode: 500, headers, body: JSON.stringify({ error: '服务器内部错误' }) };
   }
-};
+}

@@ -54,9 +54,10 @@ td{padding:10px 12px;border-bottom:1px solid #f1f5f9}
 .chart-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
 .chart-bar{width:100%;max-width:36px;border-radius:6px 6px 0 0;min-height:4px}
 .plan-card{padding:20px;border:2px solid #e2e8f0;border-radius:12px;cursor:pointer;position:relative}
-.plan-card.selected{border-color:#0c8ee7}
+.plan-card.selected{border-color:#0c8ee7;background:#f0f7ff}
 .plan-card .check{position:absolute;top:12px;right:12px;width:22px;height:22px;border-radius:50%;background:#0c8ee7;display:none;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700}
 .plan-card.selected .check{display:flex}
+.plan-card.locked{opacity:.7;cursor:default}
 .confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
 .confirm-box{background:#fff;border-radius:16px;padding:28px;width:100%;max-width:380px;text-align:center}
 .confirm-box h3{font-size:17px;font-weight:700;margin-bottom:10px}
@@ -137,12 +138,18 @@ function validEmail(e){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)}
 function validPhone(p){return /^1[3-9]\d{9}$/.test(p)}
 function maskPhone(p){if(!p||p.length<7)return p||'';return p.slice(0,3)+'****'+p.slice(-4)}
 function sanitize(s,maxLen){if(!s)return'';s=String(s).trim();if(maxLen)s=s.slice(0,maxLen);return s}
+// 防止在搜索/输入中注入Supabase过滤器语法
+function sanitizeSearch(s){return String(s||'').replace(/[.'"\\();,%]/g,'').trim().slice(0,50)}
+function validUrl(u){if(!u)return true;try{const url=new URL(u);return['http:','https:'].includes(url.protocol)}catch{return false}}
 
 let currentUser=null;
 let currentProfile=null;
 let currentPage='dash';
 let isReg=false;
 const aiRequestedTitles=new Set();
+// 防抖：AI请求限频
+let lastAiRequest=0;
+const AI_COOLDOWN=3000;
 
 // ===== TOAST =====
 function toast(msg,type){
@@ -159,6 +166,23 @@ function customConfirm(title,msg,onConfirm){
   document.getElementById('cc-cancel').onclick=()=>overlay.remove();
   document.getElementById('cc-ok').onclick=()=>{overlay.remove();onConfirm()};
   overlay.addEventListener('click',(e)=>{if(e.target===overlay)overlay.remove()});
+}
+
+// ===== 自定义输入弹窗（替代 prompt） =====
+function customPrompt(title,fields,onConfirm){
+  const overlay=document.createElement('div');overlay.className='confirm-overlay';
+  let fieldHtml=fields.map(f=>'<div style="margin-bottom:10px"><label>'+esc(f.label)+'</label><input id="cp-'+escAttr(f.id)+'" maxlength="'+(f.maxlen||50)+'" placeholder="'+escAttr(f.placeholder||'')+'" style="width:100%"></div>').join('');
+  overlay.innerHTML='<div class="confirm-box" style="text-align:left"><h3 style="text-align:center">'+esc(title)+'</h3>'+fieldHtml+'<div class="btn-row" style="margin-top:16px"><button class="btn btn-ghost" id="cp-cancel">取消</button><button class="btn btn-primary" id="cp-ok">确认</button></div></div>';
+  document.body.appendChild(overlay);
+  document.getElementById('cp-cancel').onclick=()=>overlay.remove();
+  document.getElementById('cp-ok').onclick=()=>{
+    const vals={};
+    fields.forEach(f=>{vals[f.id]=document.getElementById('cp-'+f.id).value});
+    overlay.remove();onConfirm(vals);
+  };
+  overlay.addEventListener('click',(e)=>{if(e.target===overlay)overlay.remove()});
+  // 自动聚焦第一个输入框
+  setTimeout(()=>{const first=document.getElementById('cp-'+fields[0].id);if(first)first.focus()},100);
 }
 
 // ===== LOGIN =====
@@ -190,17 +214,15 @@ async function doLogin(){
 
   try{
     if(isReg){
-      if(!nm){showLoginError('请输入用户名');return}
-      if(nm.length<2){showLoginError('用户名至少2个字符');return}
+      if(!nm){showLoginError('请输入用户名');btn.disabled=false;btn.textContent='注册';return}
+      if(nm.length<2){showLoginError('用户名至少2个字符');btn.disabled=false;btn.textContent='注册';return}
       const{data,error}=await sb.auth.signUp({email:em,password:pw,options:{data:{name:nm}}});
       if(error)throw error;
-      // 检查是否需要邮箱验证
       if(data.user&&!data.session){
         showLoginError('注册成功！请查收邮箱验证后登录');
         toggleReg();btn.disabled=false;btn.textContent='登录';return;
       }
       currentUser=data.user;
-      // 等待触发器创建 profile
       await new Promise(r=>setTimeout(r,1000));
       const{data:profile}=await sb.from('profiles').select('*').eq('id',currentUser.id).single();
       currentProfile=profile;
@@ -212,7 +234,6 @@ async function doLogin(){
       if(!profile){showLoginError('用户数据异常');btn.disabled=false;btn.textContent='登录';return}
       if(profile.is_banned){showLoginError('账号已被封禁');await sb.auth.signOut();btn.disabled=false;btn.textContent='登录';return}
       currentProfile=profile;
-      // 更新最后登录时间
       await sb.from('profiles').update({last_login:new Date().toISOString()}).eq('id',currentUser.id);
     }
     toast(isReg?'注册成功！':'登录成功！','ok');
@@ -282,13 +303,32 @@ function renderPage(page){
   else if(page==='set')loadSet();
 }
 
+// ===== 会话过期检测 =====
+async function safeQuery(fn){
+  try{
+    const result=await fn();
+    if(result.error&&result.error.message&&result.error.message.includes('JWT')){
+      toast('登录已过期，请重新登录','err');
+      setTimeout(()=>logout(),1500);
+      return{data:null,error:result.error};
+    }
+    return result;
+  }catch(e){
+    if(e.message&&e.message.includes('JWT')){
+      toast('登录已过期，请重新登录','err');
+      setTimeout(()=>logout(),1500);
+    }
+    return{data:null,error:e};
+  }
+}
+
 // ===== DASHBOARD =====
 async function loadDash(){
-  const[products,orders]=await Promise.all([
-    sb.from('products').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false}),
-    sb.from('orders').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false})
+  const[prodRes,ordRes]=await Promise.all([
+    safeQuery(()=>sb.from('products').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false})),
+    safeQuery(()=>sb.from('orders').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false}))
   ]);
-  const ps=products.data||[],os=orders.data||[];
+  const ps=prodRes.data||[],os=ordRes.data||[];
   const tp=ps.reduce((s,p)=>s+Number(p.profit||0),0);
   const po=os.filter(o=>o.status==='pending').length;
   const stats=[
@@ -315,9 +355,14 @@ async function loadDash(){
 
 // ===== PRODUCTS =====
 async function loadProd(){
-  const{data:ps}=await sb.from('products').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false});
+  const{data:ps}=await safeQuery(()=>sb.from('products').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false}));
   const products=ps||[];
-  let h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px"><span style="font-size:14px;color:#94a3b8">已绑定 <b style="color:#0c8ee7">'+products.length+'</b> 个商品</span><button class="btn btn-primary" onclick="openProdModal()">+ 绑定新商品</button></div>';
+  const plan=currentProfile?.plan||'free';
+  const limit=plan==='free'?5:0; // 免费版限5个商品
+  const canAdd=limit===0||products.length<limit;
+
+  let h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px"><span style="font-size:14px;color:#94a3b8">已绑定 <b style="color:#0c8ee7">'+products.length+'</b> 个商品'+(limit>0?' <span style="color:#94a3b8">（'+limit+'个上限）</span>':'')+'</span>'+(canAdd?'<button class="btn btn-primary" onclick="openProdModal()">+ 绑定新商品</button>':'<button class="btn btn-ghost" style="opacity:.6;cursor:default" disabled>升级套餐绑定更多</button>')+'</div>';
+
   if(products.length===0){
     h+='<div class="card" style="text-align:center;padding:50px"><div style="font-size:44px;margin-bottom:10px">📦</div><div style="font-size:16px;font-weight:600;color:#475569;margin-bottom:6px">还没有绑定商品</div><div style="font-size:13px;color:#94a3b8;margin-bottom:18px">绑定拼多多/淘宝商品与闲鱼链接，自动计算利润</div><button class="btn btn-primary" onclick="openProdModal()">开始绑定</button></div>';
   }else{
@@ -354,7 +399,7 @@ function openProdModal(id){
 }
 
 async function editProd(id){
-  const{data:p}=await sb.from('products').select('*').eq('id',id).eq('user_id',currentUser.id).single();
+  const{data:p}=await safeQuery(()=>sb.from('products').select('*').eq('id',id).eq('user_id',currentUser.id).single());
   if(!p){toast('商品不存在','err');return}
   window._editProd=p;
   openProdModal(id);
@@ -366,14 +411,18 @@ async function saveProd(id){
   if(!st||!xt){toast('请填写商品信息','err');return}
   const c=parseFloat(get('sp'))||0;const s=parseFloat(get('xp'))||0;const fr=parseFloat(get('fr'))||0;
   if(c<0||s<0||fr<0){toast('价格不能为负数','err');return}
+  // URL格式校验
+  const su=get('su'),xu=get('xu');
+  if(su&&!validUrl(su)){toast('货源链接格式不正确','err');return}
+  if(xu&&!validUrl(xu)){toast('闲鱼链接格式不正确','err');return}
   const pf=s-c-fr;const pr=s>0?((pf/s)*100).toFixed(1):0;
-  const d={source_url:sanitize(get('su'),500),source_title:st,source_price:c,source_platform:get('pl'),xianyu_url:sanitize(get('xu'),500),xianyu_title:xt,xianyu_price:s,freight:fr,profit:pf,profit_rate:pr,risk_level:pr>=30?'low':pr>=15?'medium':'high',status:'active'};
+  const d={source_url:sanitize(su,500),source_title:st,source_price:c,source_platform:get('pl'),xianyu_url:sanitize(xu,500),xianyu_title:xt,xianyu_price:s,freight:fr,profit:pf,profit_rate:pr,risk_level:pr>=30?'low':pr>=15?'medium':'high',status:'active'};
   if(id){
-    const{error}=await sb.from('products').update(d).eq('id',id).eq('user_id',currentUser.id);
+    const{error}=await safeQuery(()=>sb.from('products').update(d).eq('id',id).eq('user_id',currentUser.id));
     if(error){toast('更新失败','err');return}
   }else{
     d.user_id=currentUser.id;
-    const{error}=await sb.from('products').insert(d);
+    const{error}=await safeQuery(()=>sb.from('products').insert(d));
     if(error){toast('绑定失败','err');return}
   }
   document.querySelector('.modal-overlay').remove();
@@ -383,7 +432,7 @@ async function saveProd(id){
 
 async function delProd(id){
   customConfirm('删除商品','确定删除该商品？此操作不可恢复。',async()=>{
-    await sb.from('products').delete().eq('id',id).eq('user_id',currentUser.id);
+    await safeQuery(()=>sb.from('products').delete().eq('id',id).eq('user_id',currentUser.id));
     toast('已删除');loadProd();
   });
 }
@@ -393,10 +442,8 @@ async function loadOrd(){
   const filter=window._ordFilter||'all';
   let q=sb.from('orders').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false});
   if(filter!=='all')q=q.eq('status',filter==='done'?'completed':filter==='processing'?'shipped':filter);
-  const{data:os}=await q;
+  const{data:os}=await safeQuery(()=>q);
   const orders=os||[];
-  const{data:ps}=await sb.from('products').select('id,xianyu_title,profit').eq('user_id',currentUser.id);
-  const products=ps||[];
 
   let h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px"><div style="display:flex;gap:6px">';
   [{id:'all',l:'全部'},{id:'pending',l:'待处理'},{id:'processing',l:'处理中'},{id:'done',l:'已完成'}].forEach(x=>{
@@ -417,12 +464,12 @@ async function loadOrd(){
 }
 
 async function openOrdModal(){
-  const{data:ps}=await sb.from('products').select('id,xianyu_title,profit').eq('user_id',currentUser.id);
+  const{data:ps}=await safeQuery(()=>sb.from('products').select('id,xianyu_title,profit').eq('user_id',currentUser.id));
   const products=ps||[];
   let opts='<option value="">选择商品</option>';
   products.forEach(p=>opts+='<option value="'+p.id+'">'+esc(p.xianyu_title)+' (利润¥'+Number(p.profit||0).toFixed(2)+')</option>');
   const m=document.createElement('div');m.className='modal-overlay';
-  m.innerHTML='<div class="modal-box" onclick="event.stopPropagation()"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h3 style="font-size:17px;font-weight:700">录入新订单</h3><span onclick="this.closest(\'.modal-overlay\').remove()" style="cursor:pointer;color:#94a3b8;font-size:20px">&times;</span></div><div style="display:flex;flex-direction:column;gap:12px"><div><label>关联商品</label><select id="of-pi">'+opts+'</select></div><div><label>买家姓名</label><input id="of-bn" maxlength="20" placeholder="买家姓名"></div><div><label>买家手机号</label><input id="of-bp" maxlength="11" placeholder="手机号"></div><div><label>收货地址</label><input id="of-ba" maxlength="200" placeholder="详细地址"></div><div><label>售价 (¥)</label><input id="of-sp" type="number" min="0" step="0.01" placeholder="自动从商品获取"></div></div><div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end"><button class="btn btn-ghost" onclick="this.closest(\'.modal-overlay\').remove()">取消</button><button class="btn btn-primary" onclick="saveOrd()">确认录入</button></div></div>';
+  m.innerHTML='<div class="modal-box" onclick="event.stopPropagation()"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><h3 style="font-size:17px;font-weight:700">录入新订单</h3><span onclick="this.closest(\'.modal-overlay\').remove()" style="cursor:pointer;color:#94a3b8;font-size:20px">&times;</span></div><div style="display:flex;flex-direction:column;gap:12px"><div><label>关联商品</label><select id="of-pi">'+opts+'</select></div><div><label>买家姓名</label><input id="of-bn" maxlength="20" placeholder="买家姓名"></div><div><label>买家手机号</label><input id="of-bp" maxlength="11" placeholder="手机号" type="tel"></div><div><label>收货地址</label><input id="of-ba" maxlength="200" placeholder="详细地址"></div><div><label>售价 (¥)</label><input id="of-sp" type="number" min="0" step="0.01" placeholder="自动从商品获取"></div></div><div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end"><button class="btn btn-ghost" onclick="this.closest(\'.modal-overlay\').remove()">取消</button><button class="btn btn-primary" onclick="saveOrd()">确认录入</button></div></div>';
   m.addEventListener('click',function(e){if(e.target===m)m.remove()});
   document.body.appendChild(m);
 }
@@ -433,38 +480,43 @@ async function saveOrd(){
   if(!pi||!bn){toast('请填写必要信息','err');return}
   const phone=sanitize(get('bp'),11);
   if(phone&&!validPhone(phone)){toast('手机号格式不正确','err');return}
-  const{data:p}=await sb.from('products').select('*').eq('id',parseInt(pi)).eq('user_id',currentUser.id).single();
+  const{data:p}=await safeQuery(()=>sb.from('products').select('*').eq('id',parseInt(pi)).eq('user_id',currentUser.id).single());
   if(!p){toast('请选择关联商品','err');return}
   const pf=p.profit||0;
   const salePrice=parseFloat(get('sp'))||p.xianyu_price||0;
-  const{error}=await sb.from('orders').insert({
+  const{error}=await safeQuery(()=>sb.from('orders').insert({
     user_id:currentUser.id,product_id:p.id,product_title:p.xianyu_title,
     buyer_name:bn,buyer_phone:phone,buyer_address:sanitize(get('ba'),200),
     sale_price:salePrice,profit:pf,status:'pending',
     source_url:p.source_url||'',source_platform:p.source_platform||'',
     logistics_company:'',logistics_no:''
-  });
+  }));
   if(error){toast('创建失败','err');return}
   document.querySelector('.modal-overlay').remove();
   toast('订单已创建！','ok');loadOrd();
 }
 
 async function chOrdStatus(id,st){
-  await sb.from('orders').update({status:st}).eq('id',id).eq('user_id',currentUser.id);
+  await safeQuery(()=>sb.from('orders').update({status:st}).eq('id',id).eq('user_id',currentUser.id));
   toast('状态已更新');loadOrd();
 }
 
+// [修复] 使用自定义弹窗替代 prompt() 填写物流
 async function addLogistics(id){
-  const c=prompt('快递公司（如：中通、圆通）：');if(!c)return;
-  const n=prompt('快递单号：');if(!n)return;
-  const updateData={logistics_company:sanitize(c,20),logistics_no:sanitize(n,30)};
-  // 同时标记为已完成
-  await sb.from('orders').update({...updateData,status:'completed'}).eq('id',id).eq('user_id',currentUser.id);
-  toast('物流已同步');loadOrd();
+  customPrompt('填写物流信息',[
+    {id:'company',label:'快递公司',placeholder:'如：中通、圆通',maxlen:20},
+    {id:'tracking',label:'快递单号',placeholder:'输入快递单号',maxlen:30}
+  ],async(vals)=>{
+    const company=sanitize(vals.company,20);
+    const tracking=sanitize(vals.tracking,30);
+    if(!company||!tracking){toast('请填写完整的物流信息','err');return}
+    await safeQuery(()=>sb.from('orders').update({logistics_company:company,logistics_no:tracking,status:'completed'}).eq('id',id).eq('user_id',currentUser.id));
+    toast('物流已同步');loadOrd();
+  });
 }
 
 async function goSource(oid){
-  const{data:o}=await sb.from('orders').select('source_url').eq('id',oid).eq('user_id',currentUser.id).single();
+  const{data:o}=await safeQuery(()=>sb.from('orders').select('source_url').eq('id',oid).eq('user_id',currentUser.id).single());
   if(o&&o.source_url)window.open(o.source_url,'_blank','noopener,noreferrer');
   else toast('未绑定原商品链接','err');
 }
@@ -472,8 +524,8 @@ async function goSource(oid){
 // ===== ANALYTICS =====
 async function loadAna(){
   const[prodRes,ordRes]=await Promise.all([
-    sb.from('products').select('*').eq('user_id',currentUser.id),
-    sb.from('orders').select('*').eq('user_id',currentUser.id)
+    safeQuery(()=>sb.from('products').select('*').eq('user_id',currentUser.id)),
+    safeQuery(()=>sb.from('orders').select('*').eq('user_id',currentUser.id))
   ]);
   const ps=prodRes.data||[],os=ordRes.data||[];
   const dn=os.filter(o=>o.status==='completed').length;
@@ -492,13 +544,12 @@ async function loadAna(){
   if(ps.length===0)h+='<div style="text-align:center;padding:30px;color:#94a3b8">暂无数据</div>';
   else{[...ps].sort((a,b)=>(b.profit||0)-(a.profit||0)).slice(0,5).forEach((p,i)=>{const colors=['#f59e0b','#94a3b8','#cd7f32','#cbd5e1','#cbd5e1'];h+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9"><span style="font-size:18px;font-weight:700;color:'+colors[i]+';width:24px">#'+(i+1)+'</span><div style="flex:1"><div style="font-size:13px;font-weight:500">'+esc((p.xianyu_title||'').slice(0,18))+'</div><div style="font-size:11px;color:#94a3b8">利润率 '+(p.profit_rate||0)+'%</div></div><span style="font-weight:700;color:#059669">¥'+Number(p.profit||0).toFixed(2)+'</span></div>'})}
   h+='</div>';
-  // AI优化
+  // AI优化（限频）
   h+='<div class="card" style="padding:16px"><h3 style="font-size:15px;font-weight:700;margin-bottom:12px">🤖 AI 标题优化建议</h3><div style="font-size:13px;color:#94a3b8;margin-bottom:14px">AI 智能优化你的闲鱼商品标题，提升曝光</div>';
   if(ps.length===0)h+='<div style="text-align:center;padding:20px;color:#94a3b8">绑定商品后自动生成优化建议</div>';
   else{aiRequestedTitles.clear();ps.slice(0,3).forEach((p,idx)=>{const uid='ai_'+idx;h+='<div style="margin-bottom:10px;padding:10px;background:#f8fafc;border-radius:8px"><div style="font-size:11px;color:#94a3b8;margin-bottom:2px">原标题</div><div style="font-size:13px;color:#64748b;margin-bottom:5px">'+esc(p.xianyu_title)+'</div><div style="font-size:11px;color:#059669;margin-bottom:2px">✨ AI优化</div><div id="'+uid+'" data-title="'+escAttr(p.xianyu_title)+'" style="font-size:13px;font-weight:600;color:#0c8ee7;min-height:18px"><span style="color:#94a3b8;font-weight:400">加载中...</span></div><button class="btn btn-ghost btn-sm" style="margin-top:6px;font-size:11px;padding:4px 10px" data-ai-btn="'+uid+'">🔄 重新生成</button></div>'})}
   h+='</div>';
   document.getElementById('content').innerHTML=h;
-  // Trigger AI optimization
   setTimeout(()=>{document.querySelectorAll('[data-ai-btn]').forEach(btn=>{const targetId=btn.dataset.aiBtn;const targetEl=document.getElementById(targetId);if(targetEl&&targetEl.querySelector('span'))optimizeTitle(targetId)})},300);
   document.querySelectorAll('[data-ai-btn]').forEach(btn=>{btn.addEventListener('click',()=>{const targetId=btn.dataset.aiBtn;const targetEl=document.getElementById(targetId);if(targetEl){const title=targetEl.dataset.title;aiRequestedTitles.delete(title);optimizeTitle(targetId,title)}})});
 }
@@ -507,15 +558,19 @@ async function optimizeTitle(elId,forceTitle){
   const el=document.getElementById(elId);if(!el)return;
   const origTitle=forceTitle||el.dataset.title||'';
   if(!origTitle){el.innerHTML='<span style="color:#94a3b8">无标题可优化</span>';return}
+  // 限频：3秒内不重复请求
+  const now=Date.now();
   if(!forceTitle&&aiRequestedTitles.has(origTitle))return;
+  if(now-lastAiRequest<AI_COOLDOWN){el.innerHTML='<span style="color:#94a3b8;font-weight:400">请求过快，请稍后再试</span>';return}
   aiRequestedTitles.add(origTitle);
+  lastAiRequest=now;
   el.innerHTML='<span style="color:#94a3b8;font-weight:400">✨ 生成中...</span>';
   try{
     const res=await fetch('/.netlify/functions/optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:origTitle.slice(0,100)})});
     if(!res.ok)throw new Error('请求失败');
     const data=await res.json();
     const aiTitle=data.choices&&data.choices[0]&&data.choices[0].message?data.choices[0].message.content.trim():'';
-    if(aiTitle)el.textContent=aiTitle;
+    if(aiTitle)el.textContent=aiTitle.slice(0,60); // 限制AI输出长度
     else el.innerHTML='<span style="color:#ef4444">生成失败，点击重试</span>';
   }catch(e){el.innerHTML='<span style="color:#ef4444">网络错误，点击重试</span>'}
 }
@@ -523,41 +578,56 @@ async function optimizeTitle(elId,forceTitle){
 // ===== SETTINGS =====
 async function loadSet(){
   const[prodRes,ordRes]=await Promise.all([
-    sb.from('products').select('id',{count:'exact',head:true}).eq('user_id',currentUser.id),
-    sb.from('orders').select('id',{count:'exact',head:true}).eq('user_id',currentUser.id)
+    safeQuery(()=>sb.from('products').select('id',{count:'exact',head:true}).eq('user_id',currentUser.id)),
+    safeQuery(()=>sb.from('orders').select('id',{count:'exact',head:true}).eq('user_id',currentUser.id))
   ]);
   const pc=prodRes.count||0,oc=ordRes.count||0;
   const plan=currentProfile?.plan||'free';
-  const plans=[{id:'free',n:'免费版',p:'0',f:['商品绑定 (限5个)','手动订单管理','基础利润计算']},{id:'pro',n:'Pro版',p:'39',f:['无限商品绑定','订单自动检测','AI标题优化','物流同步','一键代拍']},{id:'studio',n:'工作室版',p:'99',f:['Pro版全部功能','多账号管理','数据导出','优先支持','API接口']}];
+  const plans=[
+    {id:'free',n:'免费版',p:'0',f:['商品绑定 (限5个)','手动订单管理','基础利润计算'],lock:false},
+    {id:'pro',n:'Pro版',p:'39',f:['无限商品绑定','订单自动检测','AI标题优化','物流同步','一键代拍'],lock:true},
+    {id:'studio',n:'工作室版',p:'99',f:['Pro版全部功能','多账号管理','数据导出','优先支持','API接口'],lock:true}
+  ];
   let h='<h2 style="font-size:19px;font-weight:700;margin-bottom:18px">💳 套餐管理</h2><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:28px">';
-  plans.forEach(p=>{const sel=plan===p.id;h+='<div class="plan-card'+(sel?' selected':'')+'" onclick="switchPlan(\''+p.id+'\')"><div class="check">✓</div><div style="font-size:17px;font-weight:700;margin-bottom:4px">'+esc(p.n)+'</div><div style="margin-bottom:12px"><span style="font-size:26px;font-weight:800;color:#0c8ee7">¥'+esc(p.p)+'</span><span style="font-size:13px;color:#94a3b8">/月</span></div>'+p.f.map(f=>'<div style="display:flex;align-items:center;gap:5px;font-size:13px;color:#475569;padding:3px 0"><span style="color:#22c55e">✓</span>'+esc(f)+'</div>').join('')+'</div>'});
+  plans.forEach(p=>{
+    const sel=plan===p.id;
+    h+='<div class="plan-card'+(sel?' selected':'')+(p.lock&&!sel?' locked':'')+'" '+(p.lock&&!sel?'onclick="toast(\'升级套餐请联系管理员\',\'err\')"':'onclick="switchPlan(\''+p.id+'\')\"')+'><div class="check">✓</div><div style="font-size:17px;font-weight:700;margin-bottom:4px">'+esc(p.n)+'</div><div style="margin-bottom:12px"><span style="font-size:26px;font-weight:800;color:#0c8ee7">¥'+esc(p.p)+'</span><span style="font-size:13px;color:#94a3b8">/月</span></div>'+p.f.map(f=>'<div style="display:flex;align-items:center;gap:5px;font-size:13px;color:#475569;padding:3px 0"><span style="color:#22c55e">✓</span>'+esc(f)+'</div>').join('')+(p.lock&&!sel?'<div style="margin-top:8px;font-size:11px;color:#94a3b8">🔒 升级请联系管理员</div>':'')+'</div>';
+  });
   h+='</div><div class="card" style="padding:18px"><h3 style="font-size:16px;font-weight:700;margin-bottom:14px">⚙️ 系统设置</h3><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px">用户信息</div><div style="font-size:12px;color:#94a3b8">'+esc(currentProfile?.name||'')+' · '+esc(currentProfile?.email||'')+'</div></div><span class="badge bg-blue">当前：'+(plan==='free'?'免费版':plan==='pro'?'Pro版':'工作室版')+'</span></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px">数据统计</div><div style="font-size:12px;color:#94a3b8">'+pc+' 商品 · '+oc+' 订单</div></div></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px">📥 导出数据</div><div style="font-size:12px;color:#94a3b8">导出所有商品和订单为JSON文件</div></div><button class="btn btn-primary btn-sm" onclick="exportData()">导出</button></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px;color:#ef4444">清除数据</div><div style="font-size:12px;color:#94a3b8">删除所有商品和订单数据</div></div><button class="btn btn-red btn-sm" onclick="clearAll()">清除</button></div></div><div style="margin-top:18px;padding:14px;background:#fffbeb;border-radius:8px;font-size:13px;color:#92400e;display:flex;align-items:flex-start;gap:8px"><span>🛡️</span><div><b>安全提示：</b>数据云端加密存储，手机号自动脱敏显示。本系统仅作为电商辅助工具，不参与实际交易。请遵守各平台规则，合理使用。</div></div>';
   document.getElementById('content').innerHTML=h;
 }
 
+// [修复] 套餐切换：普通用户不能自行修改套餐，只有当前套餐可以选
 async function switchPlan(id){
-  const{error}=await sb.from('profiles').update({plan:id}).eq('id',currentUser.id);
-  if(error){toast('切换失败','err');return}
-  currentProfile.plan=id;
-  document.getElementById('plan-badge').textContent=id==='free'?'免费版':id==='pro'?'Pro版':'工作室版';
-  document.getElementById('plan-badge').className='badge '+(id==='free'?'bg-blue':id==='pro'?'bg-yellow':'bg-green');
-  toast('已切换至 '+(id==='free'?'免费版':id==='pro'?'Pro版':'工作室版'),'ok');
+  if(id!=='free'&&id!==(currentProfile?.plan||'free')){
+    toast('升级套餐请联系管理员','err');
+    return;
+  }
+  // 只允许选回免费版（如果当前已经是免费版则无操作）
+  if(id===(currentProfile?.plan||'free')){
+    toast('当前已是该套餐','ok');
+    return;
+  }
+  // 数据库触发器会阻止普通用户修改 plan 字段，这里只是前端提示
+  toast('套餐变更需联系管理员','err');
 }
 
 async function clearAll(){
   customConfirm('清除所有数据','确定清除所有商品和订单数据？此操作不可恢复！',async()=>{
-    await sb.from('orders').delete().eq('user_id',currentUser.id);
-    await sb.from('products').delete().eq('user_id',currentUser.id);
+    await safeQuery(()=>sb.from('orders').delete().eq('user_id',currentUser.id));
+    await safeQuery(()=>sb.from('products').delete().eq('user_id',currentUser.id));
     toast('数据已清除');loadSet();
   });
 }
 
 async function exportData(){
   const[prodRes,ordRes]=await Promise.all([
-    sb.from('products').select('*').eq('user_id',currentUser.id),
-    sb.from('orders').select('*').eq('user_id',currentUser.id)
+    safeQuery(()=>sb.from('products').select('*').eq('user_id',currentUser.id)),
+    safeQuery(()=>sb.from('orders').select('*').eq('user_id',currentUser.id))
   ]);
-  const exportDb={user:{name:currentProfile?.name,email:currentProfile?.email,plan:currentProfile?.plan},products:prodRes.data||[],orders:ordRes.data||[]};
+  // [修复] 导出数据中手机号脱敏
+  const exportOrders=(ordRes.data||[]).map(o=>({...o,buyer_phone:maskPhone(o.buyer_phone)}));
+  const exportDb={user:{name:currentProfile?.name,email:currentProfile?.email,plan:currentProfile?.plan},products:prodRes.data||[],orders:exportOrders};
   const blob=new Blob([JSON.stringify(exportDb,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download='fishflow_backup_'+new Date().toISOString().slice(0,10)+'.json';
@@ -569,7 +639,7 @@ async function init(){
   const{data}=await sb.auth.getSession();
   if(data.session){
     currentUser=data.session.user;
-    const{data:profile}=await sb.from('profiles').select('*').eq('id',currentUser.id).single();
+    const{data:profile}=await safeQuery(()=>sb.from('profiles').select('*').eq('id',currentUser.id).single());
     if(profile&&!profile.is_banned){
       currentProfile=profile;
       showApp();

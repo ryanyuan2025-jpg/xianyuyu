@@ -612,7 +612,7 @@ async function loadSet(){
   let h='<h2 style="font-size:19px;font-weight:700;margin-bottom:18px">💳 套餐管理</h2><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:28px">';
   plans.forEach(p=>{
     const sel=plan===p.id;
-    h+='<div class="plan-card'+(sel?' selected':'')+(p.lock&&!sel?' locked':'')+'" '+(p.lock&&!sel?'onclick="toast(\'升级套餐请联系管理员\',\'err\')"':'onclick="switchPlan(\''+p.id+'\')\"')+'><div class="check">✓</div><div style="font-size:17px;font-weight:700;margin-bottom:4px">'+esc(p.n)+'</div><div style="margin-bottom:12px"><span style="font-size:26px;font-weight:800;color:#0c8ee7">¥'+esc(p.p)+'</span><span style="font-size:13px;color:#94a3b8">/月</span></div>'+p.f.map(f=>'<div style="display:flex;align-items:center;gap:5px;font-size:13px;color:#475569;padding:3px 0"><span style="color:#22c55e">✓</span>'+esc(f)+'</div>').join('')+(p.lock&&!sel?'<div style="margin-top:8px;font-size:11px;color:#94a3b8">🔒 升级请联系管理员</div>':'')+'</div>';
+    h+='<div class="plan-card'+(sel?' selected':'')+(p.lock&&!sel?' locked':'')+'" '+(p.lock&&!sel?'onclick="toast(\'升级套餐请联系管理员 vx：zhangjunyuan-Ryan\',\'err\')"':'onclick="switchPlan(\''+p.id+'\')\"')+'><div class="check">✓</div><div style="font-size:17px;font-weight:700;margin-bottom:4px">'+esc(p.n)+'</div><div style="margin-bottom:12px"><span style="font-size:26px;font-weight:800;color:#0c8ee7">¥'+esc(p.p)+'</span><span style="font-size:13px;color:#94a3b8">/月</span></div>'+p.f.map(f=>'<div style="display:flex;align-items:center;gap:5px;font-size:13px;color:#475569;padding:3px 0"><span style="color:#22c55e">✓</span>'+esc(f)+'</div>').join('')+(p.lock&&!sel?'<div style="margin-top:8px;font-size:11px;color:#94a3b8">🔒 升级请联系管理员 vx：zhangjunyuan-Ryan</div>':'')+'</div>';
   });
   h+='</div><div class="card" style="padding:18px"><h3 style="font-size:16px;font-weight:700;margin-bottom:14px">⚙️ 系统设置</h3><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px">用户信息</div><div style="font-size:12px;color:#94a3b8">'+esc(currentProfile?.name||'')+' · '+esc(currentProfile?.email||'')+'</div></div><span class="badge bg-blue">当前：'+(plan==='free'?'免费版':plan==='pro'?'Pro版':'工作室版')+'</span></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px">数据统计</div><div style="font-size:12px;color:#94a3b8">'+pc+' 商品 · '+oc+' 订单</div></div></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px">📥 导出数据</div><div style="font-size:12px;color:#94a3b8">导出所有商品和订单为JSON文件</div></div><button class="btn btn-primary btn-sm" onclick="exportData()">导出</button></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600;font-size:14px;color:#ef4444">清除数据</div><div style="font-size:12px;color:#94a3b8">删除所有商品和订单数据</div></div><button class="btn btn-red btn-sm" onclick="clearAll()">清除</button></div></div><div style="margin-top:18px;padding:14px;background:#fffbeb;border-radius:8px;font-size:13px;color:#92400e;display:flex;align-items:flex-start;gap:8px"><span>🛡️</span><div><b>安全提示：</b>数据云端加密存储，手机号自动脱敏显示。本系统仅作为电商辅助工具，不参与实际交易。请遵守各平台规则，合理使用。</div></div>';
   document.getElementById('content').innerHTML=h;
@@ -621,7 +621,7 @@ async function loadSet(){
 // [修复] 套餐切换：普通用户不能自行修改套餐，只有当前套餐可以选
 async function switchPlan(id){
   if(id!=='free'&&id!==(currentProfile?.plan||'free')){
-    toast('升级套餐请联系管理员','err');
+    toast('升级套餐请联系管理员 vx：zhangjunyuan-Ryan','err');
     return;
   }
   // 只允许选回免费版（如果当前已经是免费版则无操作）
@@ -630,7 +630,7 @@ async function switchPlan(id){
     return;
   }
   // 数据库触发器会阻止普通用户修改 plan 字段，这里只是前端提示
-  toast('套餐变更需联系管理员','err');
+  toast('套餐变更需联系管理员 vx：zhangjunyuan-Ryan','err');
 }
 
 async function clearAll(){

@@ -83,6 +83,12 @@ tr:hover td{background:rgba(59,130,246,.04)}
 .modal .btn-row{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
 .pagination{display:flex;gap:6px;justify-content:center;margin-top:16px}
 .pagination .btn-sm{min-width:36px}
+.confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;display:none;align-items:center;justify-content:center}
+.confirm-overlay.show{display:flex}
+.confirm-box{background:var(--card);border-radius:var(--radius);padding:28px;width:90%;max-width:380px;text-align:center;border:1px solid var(--border)}
+.confirm-box h3{font-size:17px;margin-bottom:10px}
+.confirm-box p{font-size:14px;color:var(--muted);margin-bottom:20px}
+.confirm-box .btn-row{display:flex;gap:10px;justify-content:center}
 @media(max-width:768px){
   .sidebar{transform:translateX(-100%);transition:transform .3s}
   .sidebar.open{transform:translateX(0)}
@@ -102,11 +108,11 @@ tr:hover td{background:rgba(59,130,246,.04)}
     <p>管理后台登录</p>
     <div class="form-group">
       <label>邮箱</label>
-      <input type="email" id="loginEmail" placeholder="admin@example.com">
+      <input type="email" id="loginEmail" maxlength="100" placeholder="admin@example.com" autocomplete="email">
     </div>
     <div class="form-group">
       <label>密码</label>
-      <input type="password" id="loginPassword" placeholder="输入密码">
+      <input type="password" id="loginPassword" maxlength="64" placeholder="输入密码" autocomplete="current-password">
     </div>
     <button class="btn btn-primary" onclick="doLogin()">登录</button>
     <div class="error-msg" id="loginError"></div>
@@ -117,7 +123,7 @@ tr:hover td{background:rgba(59,130,246,.04)}
   <div class="sidebar" id="sidebar">
     <div class="logo">
       <h2>FishFlow</h2>
-      <span>管理后台 v1.0</span>
+      <span>管理后台 v1.1</span>
     </div>
     <div class="nav-item active" data-page="dashboard" onclick="switchPage('dashboard')">
       <span class="icon">📊</span>数据总览
@@ -167,7 +173,7 @@ tr:hover td{background:rgba(59,130,246,.04)}
 
     <div class="page" id="page-users">
       <div class="toolbar">
-        <input type="text" id="userSearch" placeholder="搜索邮箱/姓名..." oninput="loadUsers()">
+        <input type="text" id="userSearch" placeholder="搜索邮箱/姓名..." oninput="loadUsers()" maxlength="50">
         <select id="userFilter" onchange="loadUsers()">
           <option value="">全部状态</option>
           <option value="banned">已封禁</option>
@@ -188,7 +194,7 @@ tr:hover td{background:rgba(59,130,246,.04)}
 
     <div class="page" id="page-orders">
       <div class="toolbar">
-        <input type="text" id="orderSearch" placeholder="搜索商品/买家..." oninput="loadOrders()">
+        <input type="text" id="orderSearch" placeholder="搜索商品/买家..." oninput="loadOrders()" maxlength="50">
         <select id="orderStatus" onchange="loadOrders()">
           <option value="">全部状态</option>
           <option value="pending">待处理</option>
@@ -212,7 +218,7 @@ tr:hover td{background:rgba(59,130,246,.04)}
 
     <div class="page" id="page-products">
       <div class="toolbar">
-        <input type="text" id="productSearch" placeholder="搜索商品标题..." oninput="loadProducts()">
+        <input type="text" id="productSearch" placeholder="搜索商品标题..." oninput="loadProducts()" maxlength="50">
         <select id="productPlatform" onchange="loadProducts()">
           <option value="">全部平台</option>
           <option value="pinduoduo">拼多多</option>
@@ -253,11 +259,12 @@ tr:hover td{background:rgba(59,130,246,.04)}
   </div>
 </div>
 
+<!-- 创建订阅弹窗 -->
 <div class="modal-overlay" id="subModal">
   <div class="modal">
     <h3>创建订阅</h3>
-    <div class="form-group"><label>用户邮箱</label><input type="email" id="subEmail" placeholder="user@example.com"></div>
-    <div class="form-group"><label>套餐</label><select id="subPlan"><option value="basic">基础版</option><option value="pro">专业版</option><option value="enterprise">企业版</option></select></div>
+    <div class="form-group"><label>用户邮箱</label><input type="email" id="subEmail" maxlength="100" placeholder="user@example.com"></div>
+    <div class="form-group"><label>套餐</label><select id="subPlan"><option value="free">免费版</option><option value="pro">专业版</option><option value="studio">工作室版</option></select></div>
     <div class="form-group"><label>金额(元)</label><input type="number" id="subAmount" placeholder="0" min="0" step="0.01"></div>
     <div class="btn-row">
       <button class="btn btn-ghost btn-sm" onclick="closeSubModal()">取消</button>
@@ -266,6 +273,7 @@ tr:hover td{background:rgba(59,130,246,.04)}
   </div>
 </div>
 
+<!-- 变更状态弹窗 -->
 <div class="modal-overlay" id="statusModal">
   <div class="modal">
     <h3>变更状态</h3>
@@ -277,6 +285,18 @@ tr:hover td{background:rgba(59,130,246,.04)}
   </div>
 </div>
 
+<!-- 确认操作弹窗 -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <h3 id="confirmTitle"></h3>
+    <p id="confirmMsg"></p>
+    <div class="btn-row">
+      <button class="btn btn-ghost btn-sm" onclick="closeConfirm()">取消</button>
+      <button class="btn btn-danger btn-sm" id="confirmOk">确认</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const SUPABASE_URL='https://qqybymrxgrhvgxopwjmh.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxeWJ5bXJ4Z3Jodmd4b3B3am1oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3Mjg1MzAsImV4cCI6MjA5NjMwNDUzMH0.AAINkWh52KNp2QkAZtOYeODAX3GahziD0x5qL6bgfi0';
@@ -284,12 +304,30 @@ const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 let currentAdmin=null;
 const PAGE_SIZE=15;
 
+// ===== 安全工具函数 =====
+function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=String(s);return d.innerHTML}
+function sanitizeSearch(s){return String(s||'').replace(/[.'"\\();,%]/g,'').trim().slice(0,50)}
+function validEmail(e){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)}
+
+// ===== 确认弹窗 =====
+let confirmCallback=null;
+function showConfirm(title,msg,onConfirm){
+  document.getElementById('confirmTitle').textContent=title;
+  document.getElementById('confirmMsg').textContent=msg;
+  document.getElementById('confirmOverlay').classList.add('show');
+  confirmCallback=onConfirm;
+  document.getElementById('confirmOk').onclick=()=>{closeConfirm();if(confirmCallback)confirmCallback()};
+}
+function closeConfirm(){document.getElementById('confirmOverlay').classList.remove('show');confirmCallback=null}
+
+// ===== 登录 =====
 async function doLogin(){
   const email=document.getElementById('loginEmail').value.trim();
   const pwd=document.getElementById('loginPassword').value;
   const errEl=document.getElementById('loginError');
   errEl.textContent='';
   if(!email||!pwd){errEl.textContent='请输入邮箱和密码';return}
+  if(!validEmail(email)){errEl.textContent='邮箱格式不正确';return}
   try{
     const{data,error}=await sb.auth.signInWithPassword({email,password:pwd});
     if(error)throw error;
@@ -301,7 +339,7 @@ async function doLogin(){
     document.getElementById('appPage').style.display='block';
     document.getElementById('adminEmail').textContent=email;
     loadDashboard();
-  }catch(e){errEl.textContent=e.message||'登录失败'}
+  }catch(e){errEl.textContent=e.message&&e.message.includes('Invalid login')?'邮箱或密码错误':(e.message||'登录失败')}
 }
 
 async function doLogout(){
@@ -309,6 +347,9 @@ async function doLogout(){
   currentAdmin=null;
   document.getElementById('appPage').style.display='none';
   document.getElementById('loginPage').style.display='flex';
+  document.getElementById('loginEmail').value='';
+  document.getElementById('loginPassword').value='';
+  document.getElementById('loginError').textContent='';
 }
 
 const pageTitles={dashboard:'数据总览',users:'用户管理',orders:'订单管理',products:'商品管理',subscriptions:'订阅管理'};
@@ -329,10 +370,10 @@ function toggleSidebar(){document.getElementById('sidebar').classList.toggle('op
 
 function fmtDate(d){if(!d)return'-';const dt=new Date(d);return dt.toLocaleDateString('zh-CN')+' '+dt.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}
 function fmtMoney(n){return'¥'+(Number(n)||0).toFixed(2)}
-function statusBadge(s){const m={active:'success',completed:'success',shipped:'info',pending:'warn',cancelled:'danger',banned:'danger',paused:'warn',expired:'danger'};const t={active:'活跃',completed:'已完成',shipped:'已发货',pending:'待处理',cancelled:'已取消',banned:'已封禁',paused:'暂停',expired:'已过期'};return'<span class="badge badge-'+(m[s]||'info')+'">'+(t[s]||s)+'</span>'}
-function planBadge(p){const m={free:'info',basic:'success',pro:'warn',enterprise:'danger'};const t={free:'免费版',basic:'基础版',pro:'专业版',enterprise:'企业版'};return'<span class="badge badge-'+(m[p]||'info')+'">'+(t[p]||p)+'</span>'}
-function riskBadge(r){const m={low:'success',medium:'warn',high:'danger'};const t={low:'低',medium:'中',high:'高'};return'<span class="badge badge-'+(m[r]||'info')+'">'+(t[r]||r)+'</span>'}
-function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function statusBadge(s){const m={active:'success',completed:'success',shipped:'info',pending:'warn',cancelled:'danger',banned:'danger',paused:'warn',expired:'danger'};const t={active:'活跃',completed:'已完成',shipped:'已发货',pending:'待处理',cancelled:'已取消',banned:'已封禁',paused:'暂停',expired:'已过期'};return'<span class="badge badge-'+(m[s]||'info')+'">'+(t[s]||esc(s))+'</span>'}
+function planBadge(p){const m={free:'info',pro:'warn',studio:'success',basic:'success',enterprise:'danger'};const t={free:'免费版',basic:'基础版',pro:'专业版',enterprise:'企业版',studio:'工作室版'};return'<span class="badge badge-'+(m[p]||'info')+'">'+(t[p]||esc(p))+'</span>'}
+function riskBadge(r){const m={low:'success',medium:'warn',high:'danger'};const t={low:'低',medium:'中',high:'高'};return'<span class="badge badge-'+(m[r]||'info')+'">'+(t[r]||esc(r))+'</span>'}
+
 function pager(el,count,page,loader){
   const pages=Math.ceil(count/PAGE_SIZE)||1;let h='';
   if(page>1)h+='<button class="btn btn-ghost btn-sm" onclick="'+loader+'('+(page-1)+')">‹</button>';
@@ -341,6 +382,7 @@ function pager(el,count,page,loader){
   document.getElementById(el).innerHTML=h;
 }
 
+// ===== 数据总览 =====
 async function loadDashboard(){
   const[users,orders,products,subs]=await Promise.all([
     sb.from('profiles').select('id,plan,created_at',{count:'exact'}),
@@ -363,7 +405,7 @@ async function loadDashboard(){
   for(let i=6;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);const ds=d.toISOString().slice(0,10);days.push(d.toLocaleDateString('zh-CN',{month:'short',day:'numeric'}));dayCounts.push((users.data||[]).filter(u=>u.created_at&&u.created_at.slice(0,10)===ds).length)}
   drawBarChart('trendChart',days,dayCounts);
   const planCounts={};(users.data||[]).forEach(u=>{planCounts[u.plan||'free']=(planCounts[u.plan||'free']||0)+1});
-  drawPieChart('planChart',Object.entries(planCounts).map(([k,v])=>({label:{free:'免费',basic:'基础',pro:'专业',enterprise:'企业'}[k]||k,value:v})));
+  drawPieChart('planChart',Object.entries(planCounts).map(([k,v])=>({label:{free:'免费',basic:'基础',pro:'专业',enterprise:'企业',studio:'工作室'}[k]||k,value:v})));
   const recent=(orders.data||[]).slice(-5).reverse();
   document.getElementById('recentOrders').innerHTML=recent.length?recent.map(o=>'<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px"><span>'+esc(o.product_title||'商品#'+o.id)+'</span><span>'+fmtMoney(o.sale_price)+' '+statusBadge(o.status)+'</span></div>').join(''):'<div class="empty-state"><p>暂无订单</p></div>';
   document.getElementById('lastRefresh').textContent='更新于 '+new Date().toLocaleTimeString('zh-CN');
@@ -394,43 +436,66 @@ function drawPieChart(canvasId,slices){
     ctx.fillStyle='#fff';ctx.font='bold 11px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(s.label,lx,ly-6);ctx.font='10px sans-serif';ctx.fillText(s.value,lx,ly+8)});
 }
 
+// ===== 用户管理 =====
 let usersPage=1;
 async function loadUsers(page){
   page=page||1;usersPage=page;
-  const search=document.getElementById('userSearch').value.trim();const filter=document.getElementById('userFilter').value;
+  const search=sanitizeSearch(document.getElementById('userSearch').value);
+  const filter=document.getElementById('userFilter').value;
   let q=sb.from('profiles').select('id,email,name,phone,plan,is_admin,is_banned,created_at,last_login',{count:'exact'}).order('created_at',{ascending:false}).range((page-1)*PAGE_SIZE,page*PAGE_SIZE-1);
   if(search)q=q.or('email.ilike.%'+search+'%,name.ilike.%'+search+'%');
   if(filter==='banned')q=q.eq('is_banned',true);else if(filter==='admin')q=q.eq('is_admin',true);
   const{data,count,error}=await q;if(error){console.error(error);return}
-  document.getElementById('usersBody').innerHTML=(data||[]).map(u=>'<tr><td>'+esc(u.email)+'</td><td>'+esc(u.name)+'</td><td>'+planBadge(u.plan)+'</td><td>'+(u.is_banned?statusBadge('banned'):(u.is_admin?'<span class="badge badge-info">管理员</span>':statusBadge('active')))+'</td><td>'+fmtDate(u.created_at)+'</td><td class="actions">'+(u.is_admin?'':'<button class="btn btn-warn btn-sm" onclick="setAdmin(\''+u.id+'\')">设管理</button>')+' '+(u.is_banned?'<button class="btn btn-success btn-sm" onclick="setBan(\''+u.id+'\',false)">解封</button>':'<button class="btn btn-danger btn-sm" onclick="setBan(\''+u.id+'\',true)">封禁</button>')+'</td></tr>').join('')||'<tr><td colspan="6" style="text-align:center;color:var(--muted)">暂无数据</td></tr>';
+  document.getElementById('usersBody').innerHTML=(data||[]).map(u=>{
+    const uid=esc(u.id); // 安全: UUID 格式
+    return '<tr><td>'+esc(u.email)+'</td><td>'+esc(u.name)+'</td><td>'+planBadge(u.plan)+'</td><td>'+(u.is_banned?statusBadge('banned'):(u.is_admin?'<span class="badge badge-info">管理员</span>':statusBadge('active')))+'</td><td>'+fmtDate(u.created_at)+'</td><td class="actions">'+(u.is_admin?'':'<button class="btn btn-warn btn-sm" onclick="confirmSetAdmin(\''+uid+'\')">设管理</button>')+' '+(u.is_banned?'<button class="btn btn-success btn-sm" onclick="confirmSetBan(\''+uid+'\',false)">解封</button>':'<button class="btn btn-danger btn-sm" onclick="confirmSetBan(\''+uid+'\',true)">封禁</button>')+'</td></tr>';
+  }).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--muted)">暂无数据</td></tr>';
   pager('usersPager',count,page,'loadUsers');
 }
-async function setBan(uid,banned){await sb.from('profiles').update({is_banned:banned}).eq('id',uid);loadUsers(usersPage)}
-async function setAdmin(uid){await sb.from('profiles').update({is_admin:true}).eq('id',uid);loadUsers(usersPage)}
 
+// [修复] 管理操作添加确认弹窗
+function confirmSetBan(uid,banned){
+  showConfirm(banned?'封禁用户':'解封用户',banned?'确定要封禁该用户吗？封禁后用户将无法登录。':'确定要解封该用户吗？',async()=>{await sb.from('profiles').update({is_banned:banned}).eq('id',uid);loadUsers(usersPage)});
+}
+function confirmSetAdmin(uid){
+  showConfirm('设置管理员','确定要将该用户设为管理员吗？此操作需谨慎。',async()=>{await sb.from('profiles').update({is_admin:true}).eq('id',uid);loadUsers(usersPage)});
+}
+
+// ===== 订单管理 =====
 let ordersPage=1;
 async function loadOrders(page){
   page=page||1;ordersPage=page;
-  const search=document.getElementById('orderSearch').value.trim();const status=document.getElementById('orderStatus').value;
+  const search=sanitizeSearch(document.getElementById('orderSearch').value);
+  const status=document.getElementById('orderStatus').value;
   let q=sb.from('orders').select('id,user_id,product_title,buyer_name,buyer_phone,sale_price,profit,status,created_at,profiles(email)',{count:'exact'}).order('created_at',{ascending:false}).range((page-1)*PAGE_SIZE,page*PAGE_SIZE-1);
-  if(status)q=q.eq('status',status);if(search)q=q.or('product_title.ilike.%'+search+'%,buyer_name.ilike.%'+search+'%');
+  if(status)q=q.eq('status',status);
+  if(search)q=q.or('product_title.ilike.%'+search+'%,buyer_name.ilike.%'+search+'%');
   const{data,count,error}=await q;if(error){console.error(error);return}
   const totalAmt=(data||[]).reduce((a,o)=>a+Number(o.sale_price||0),0);const totalProfit=(data||[]).reduce((a,o)=>a+Number(o.profit||0),0);
   document.getElementById('orderSummary').textContent='共 '+count+' 单 | 金额 '+fmtMoney(totalAmt)+' | 利润 '+fmtMoney(totalProfit);
-  document.getElementById('ordersBody').innerHTML=(data||[]).map(o=>'<tr><td>'+o.id+'</td><td>'+esc(o.profiles?.email||'-')+'</td><td>'+esc(o.product_title||'-')+'</td><td>'+esc(o.buyer_name||'-')+'</td><td>'+fmtMoney(o.sale_price)+'</td><td>'+fmtMoney(o.profit)+'</td><td>'+statusBadge(o.status)+'</td><td>'+fmtDate(o.created_at)+'</td><td class="actions"><button class="btn btn-ghost btn-sm" onclick="changeOrderStatus('+o.id+',\''+o.status+'\')">改状态</button></td></tr>').join('')||'<tr><td colspan="9" style="text-align:center;color:var(--muted)">暂无数据</td></tr>';
+  document.getElementById('ordersBody').innerHTML=(data||[]).map(o=>'<tr><td>'+o.id+'</td><td>'+esc(o.profiles?.email||'-')+'</td><td>'+esc(o.product_title||'-')+'</td><td>'+esc(o.buyer_name||'-')+'</td><td>'+fmtMoney(o.sale_price)+'</td><td>'+fmtMoney(o.profit)+'</td><td>'+statusBadge(o.status)+'</td><td>'+fmtDate(o.created_at)+'</td><td class="actions"><button class="btn btn-ghost btn-sm" onclick="changeOrderStatus('+o.id+',\''+esc(o.status)+'\')">改状态</button></td></tr>').join('')||'<tr><td colspan="9" style="text-align:center;color:var(--muted)">暂无数据</td></tr>';
   pager('ordersPager',count,page,'loadOrders');
 }
 let pendingOrderId=null;
 function changeOrderStatus(oid,cur){pendingOrderId=oid;const sel=document.getElementById('newStatus');sel.innerHTML=['pending','shipped','completed','cancelled'].map(s=>'<option value="'+s+'"'+(s===cur?' selected':'')+'>'+{pending:'待处理',shipped:'已发货',completed:'已完成',cancelled:'已取消'}[s]+'</option>').join('');document.getElementById('statusModal').classList.add('show')}
 function closeStatusModal(){document.getElementById('statusModal').classList.remove('show');pendingOrderId=null}
-async function confirmStatusChange(){const s=document.getElementById('newStatus').value;await sb.from('orders').update({status:s}).eq('id',pendingOrderId);closeStatusModal();loadOrders(ordersPage)}
+async function confirmStatusChange(){
+  const s=document.getElementById('newStatus').value;
+  showConfirm('变更订单状态','确定将订单 #'+pendingOrderId+' 状态改为'+{pending:'待处理',shipped:'已发货',completed:'已完成',cancelled:'已取消'}[s]+'吗？',async()=>{
+    await sb.from('orders').update({status:s}).eq('id',pendingOrderId);
+    closeStatusModal();loadOrders(ordersPage);
+  });
+}
 
+// ===== 商品管理 =====
 let productsPage=1;
 async function loadProducts(page){
   page=page||1;productsPage=page;
-  const search=document.getElementById('productSearch').value.trim();const platform=document.getElementById('productPlatform').value;
+  const search=sanitizeSearch(document.getElementById('productSearch').value);
+  const platform=document.getElementById('productPlatform').value;
   let q=sb.from('products').select('id,user_id,source_title,source_price,xianyu_title,xianyu_price,profit,profit_rate,source_platform,risk_level,profiles(email)',{count:'exact'}).order('created_at',{ascending:false}).range((page-1)*PAGE_SIZE,page*PAGE_SIZE-1);
-  if(platform)q=q.eq('source_platform',platform);if(search)q=q.or('source_title.ilike.%'+search+'%,xianyu_title.ilike.%'+search+'%');
+  if(platform)q=q.eq('source_platform',platform);
+  if(search)q=q.or('source_title.ilike.%'+search+'%,xianyu_title.ilike.%'+search+'%');
   const{data,count,error}=await q;if(error){console.error(error);return}
   const platforms={};(data||[]).forEach(p=>{platforms[p.source_platform||'other']=(platforms[p.source_platform||'other']||0)+1});
   const pnames={pinduoduo:'拼多多','1688':'1688',taobao:'淘宝',other:'其他'};
@@ -439,6 +504,7 @@ async function loadProducts(page){
   pager('productsPager',count,page,'loadProducts');
 }
 
+// ===== 订阅管理 =====
 let subsPage=1;
 async function loadSubs(page){
   page=page||1;subsPage=page;
@@ -446,25 +512,41 @@ async function loadSubs(page){
   if(error){console.error(error);return}
   const active=(data||[]).filter(s=>s.status==='active');const totalRev=active.reduce((a,s)=>a+Number(s.amount||0),0);
   document.getElementById('subStats').innerHTML='<div class="stat-card"><div class="label">活跃订阅</div><div class="value green">'+active.length+'</div></div><div class="stat-card"><div class="label">订阅收入</div><div class="value purple">'+fmtMoney(totalRev)+'</div></div>';
-  document.getElementById('subsBody').innerHTML=(data||[]).map(s=>'<tr><td>'+s.id+'</td><td>'+esc(s.profiles?.email||'-')+'</td><td>'+planBadge(s.plan)+'</td><td>'+fmtMoney(s.amount)+'</td><td>'+statusBadge(s.status)+'</td><td>'+fmtDate(s.created_at)+'</td><td>'+fmtDate(s.paid_at)+'</td><td class="actions"><button class="btn btn-danger btn-sm" onclick="cancelSub('+s.id+')">取消</button></td></tr>').join('')||'<tr><td colspan="8" style="text-align:center;color:var(--muted)">暂无数据</td></tr>';
+  document.getElementById('subsBody').innerHTML=(data||[]).map(s=>'<tr><td>'+s.id+'</td><td>'+esc(s.profiles?.email||'-')+'</td><td>'+planBadge(s.plan)+'</td><td>'+fmtMoney(s.amount)+'</td><td>'+statusBadge(s.status)+'</td><td>'+fmtDate(s.created_at)+'</td><td>'+fmtDate(s.paid_at)+'</td><td class="actions"><button class="btn btn-danger btn-sm" onclick="confirmCancelSub('+s.id+')">取消</button></td></tr>').join('')||'<tr><td colspan="8" style="text-align:center;color:var(--muted)">暂无数据</td></tr>';
   pager('subsPager',count,page,'loadSubs');
 }
 function showSubModal(){document.getElementById('subModal').classList.add('show')}
 function closeSubModal(){document.getElementById('subModal').classList.remove('show')}
 async function createSub(){
-  const email=document.getElementById('subEmail').value.trim();const plan=document.getElementById('subPlan').value;const amount=document.getElementById('subAmount').value;
-  if(!email){alert('请输入邮箱');return}
+  const email=document.getElementById('subEmail').value.trim();
+  const plan=document.getElementById('subPlan').value;
+  const amount=document.getElementById('subAmount').value;
+  if(!email||!validEmail(email)){alert('请输入正确的邮箱');return}
+  if(!amount||Number(amount)<0){alert('请输入有效金额');return}
   const{data:profile}=await sb.from('profiles').select('id').eq('email',email).single();
   if(!profile){alert('未找到该用户');return}
   await sb.from('subscriptions').insert({user_id:profile.id,plan,amount:Number(amount)||0,status:'active',paid_at:new Date().toISOString()});
   closeSubModal();loadSubs();
 }
-async function cancelSub(sid){await sb.from('subscriptions').update({status:'cancelled'}).eq('id',sid);loadSubs(subsPage)}
+// [修复] 取消订阅需确认
+function confirmCancelSub(sid){
+  showConfirm('取消订阅','确定要取消该订阅吗？',async()=>{await sb.from('subscriptions').update({status:'cancelled'}).eq('id',sid);loadSubs(subsPage)});
+}
 
+// ===== 会话检查 =====
 async function checkSession(){
   const{data}=await sb.auth.getSession();
-  if(data.session){const uid=data.session.user.id;const{data:profile}=await sb.from('profiles').select('is_admin,is_banned').eq('id',uid).single();
-    if(profile&&!profile.is_banned&&profile.is_admin){currentAdmin=data.session.user;document.getElementById('loginPage').style.display='none';document.getElementById('appPage').style.display='block';document.getElementById('adminEmail').textContent=data.session.user.email;loadDashboard()}}
+  if(data.session){
+    const uid=data.session.user.id;
+    const{data:profile}=await sb.from('profiles').select('is_admin,is_banned').eq('id',uid).single();
+    if(profile&&!profile.is_banned&&profile.is_admin){
+      currentAdmin=data.session.user;
+      document.getElementById('loginPage').style.display='none';
+      document.getElementById('appPage').style.display='block';
+      document.getElementById('adminEmail').textContent=data.session.user.email;
+      loadDashboard();
+    }
+  }
 }
 checkSession();
 </script>

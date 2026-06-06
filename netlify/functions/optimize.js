@@ -44,7 +44,7 @@ exports.handler = async (event) => {
         'Authorization': 'Bearer ' + AI_API_KEY
       },
       body: JSON.stringify({
-        model: 'glm-4.7-flash',
+        model: 'glm-4-flash',
         messages: [
           {
             role: 'system',
@@ -53,7 +53,7 @@ exports.handler = async (event) => {
           { role: 'user', content: '优化这个闲鱼标题：' + title }
         ],
         temperature: 0.8,
-        max_tokens: 512
+        max_tokens: 60
       })
     });
 

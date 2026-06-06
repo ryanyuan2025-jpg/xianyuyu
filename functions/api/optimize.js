@@ -1,6 +1,4 @@
-const RESEND_API_KEY = process.env.RESEND_API_KEY || 're_VNCGYpWc_9uxzKHDbYUrJY1XRESmnaSbP';
-
-export default async function handler(req) {
+export async function onRequestPost(context) {
   const headers = {
     'Content-Type': 'application/json',
     'X-Content-Type-Options': 'nosniff',
@@ -8,12 +6,8 @@ export default async function handler(req) {
     'Referrer-Policy': 'strict-origin-when-cross-origin'
   };
 
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers });
-  }
-
   try {
-    const body = await req.json();
+    const body = await context.request.json();
 
     // === 邮件发送暗号 ===
     if (body.action === 'send-email') {
@@ -21,6 +15,8 @@ export default async function handler(req) {
       if (!email || !code) {
         return new Response(JSON.stringify({ error: '参数缺失' }), { status: 400, headers });
       }
+
+      const RESEND_API_KEY = context.env.RESEND_API_KEY || 're_VNCGYpWc_9uxzKHDbYUrJY1XRESmnaSbP';
 
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -46,7 +42,7 @@ export default async function handler(req) {
     }
 
     // === AI标题优化 ===
-    const AI_API_KEY = process.env.ZHIPU_API_KEY;
+    const AI_API_KEY = context.env.ZHIPU_API_KEY;
     if (!AI_API_KEY) {
       return new Response(JSON.stringify({ error: '服务配置错误' }), { status: 500, headers });
     }
@@ -89,4 +85,14 @@ export default async function handler(req) {
     console.error('Function error:', e.message);
     return new Response(JSON.stringify({ error: '服务器内部错误' }), { status: 500, headers });
   }
+}
+
+export async function onRequestOptions() {
+  return new Response(null, {
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type'
+    }
+  });
 }

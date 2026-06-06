@@ -249,7 +249,7 @@ tr:hover td{background:rgba(59,130,246,.04)}
       <div class="card">
         <div class="card-body" style="padding:0;overflow-x:auto">
           <table>
-            <thead><tr><th>ID</th><th>用户</th><th>套餐</th><th>金额</th><th>状态</th><th>创建时间</th><th>付款时间</th><th>操作</th></tr></thead>
+            <thead><tr><th>ID</th><th>用户</th><th>订阅套餐</th><th>用户当前套餐</th><th>金额</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
             <tbody id="subsBody"></tbody>
           </table>
         </div>
@@ -545,11 +545,11 @@ async function loadProducts(page){
 let subsPage=1;
 async function loadSubs(page){
   page=page||1;subsPage=page;
-  const{data,count,error}=await sb.from('subscriptions').select('id,user_id,plan,amount,status,created_at,paid_at,profiles(email)',{count:'exact'}).order('created_at',{ascending:false}).range((page-1)*PAGE_SIZE,page*PAGE_SIZE-1);
+  const{data,count,error}=await sb.from('subscriptions').select('id,user_id,plan,amount,status,created_at,paid_at,profiles(email,id,plan)',{count:'exact'}).order('created_at',{ascending:false}).range((page-1)*PAGE_SIZE,page*PAGE_SIZE-1);
   if(error){console.error(error);return}
   const active=(data||[]).filter(s=>s.status==='active');const totalRev=active.reduce((a,s)=>a+Number(s.amount||0),0);
   document.getElementById('subStats').innerHTML='<div class="stat-card"><div class="label">活跃订阅</div><div class="value green">'+active.length+'</div></div><div class="stat-card"><div class="label">订阅收入</div><div class="value purple">'+fmtMoney(totalRev)+'</div></div>';
-  document.getElementById('subsBody').innerHTML=(data||[]).map(s=>'<tr><td>'+s.id+'</td><td>'+esc(s.profiles?.email||'-')+'</td><td>'+planBadge(s.plan)+'</td><td>'+fmtMoney(s.amount)+'</td><td>'+statusBadge(s.status)+'</td><td>'+fmtDate(s.created_at)+'</td><td>'+fmtDate(s.paid_at)+'</td><td class="actions"><button class="btn btn-danger btn-sm" onclick="confirmCancelSub('+s.id+')">取消</button></td></tr>').join('')||'<tr><td colspan="8" style="text-align:center;color:var(--muted)">暂无数据</td></tr>';
+  document.getElementById('subsBody').innerHTML=(data||[]).map(s=>'<tr><td>'+s.id+'</td><td>'+esc(s.profiles?.email||'-')+'</td><td>'+planBadge(s.plan)+'</td><td>'+(s.profiles?.id?'<span style="display:inline-flex;align-items:center;gap:4px">'+planBadge(s.profiles?.plan||'free')+' <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px" onclick=\'changePlan("'+s.profiles.id+'","'+(s.profiles?.plan||'free')+'")\'>改</button></span>':'-')+'</td><td>'+fmtMoney(s.amount)+'</td><td>'+statusBadge(s.status)+'</td><td>'+fmtDate(s.created_at)+'</td><td class="actions"><button class="btn btn-danger btn-sm" onclick="confirmCancelSub('+s.id+')">取消</button></td></tr>').join('')||'<tr><td colspan="8" style="text-align:center;color:var(--muted)">暂无数据</td></tr>';
   pager('subsPager',count,page,'loadSubs');
 }
 function showSubModal(){document.getElementById('subModal').classList.add('show')}
